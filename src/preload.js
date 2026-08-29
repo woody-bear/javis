@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('jarvis', {
     path: (id) => ipcRenderer.invoke('docs:path', id),
     read: (id) => ipcRenderer.invoke('docs:read', id),
     write: (id, content) => ipcRenderer.invoke('docs:write', { id, content }),
+    convertToMd: (id, content) => ipcRenderer.invoke('docs:convertToMd', { id, content }),
     getOrder: () => ipcRenderer.invoke('docs:getOrder'),
     setOrder: (group, ids) => ipcRenderer.invoke('docs:setOrder', { group, ids }),
     getProject: (id) => ipcRenderer.invoke('docs:getProject', id),

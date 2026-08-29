@@ -131,9 +131,28 @@ $('docProjClear').addEventListener('click', async () => {
   refreshDocProject()
 })
 
+async function convertCurrentToMd() {
+  if (!currentDoc || !currentDoc.endsWith('.html')) return
+  const html = await window.jarvis.docs.read(currentDoc)
+  const dom = new DOMParser().parseFromString(html, 'text/html')
+  dom.querySelectorAll('style, script').forEach((n) => n.remove())
+  const [{ default: TurndownService }, gfm] = await Promise.all([
+    import('./vendor/turndown.es.js'),
+    import('./vendor/turndown-gfm.es.js'),
+  ])
+  const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
+  td.use(gfm.gfm)
+  td.keep(['details', 'summary'])
+  const md = td.turndown(dom.body ? dom.body.innerHTML : html).trim() + '\n'
+  const { id } = await window.jarvis.docs.convertToMd(currentDoc, md)
+  await refreshDocs(id)
+}
+$('docConvert').addEventListener('click', convertCurrentToMd)
+
 async function selectDoc(id) {
   currentDoc = id
   refreshDocProject()
+  $('docConvert').hidden = !id.endsWith('.html')
   const p = await window.jarvis.docs.path(id)
   const frame = $('docFrame')
   frame.src = `file://${encodeURI(p)}?t=${Date.now()}`

@@ -114,6 +114,11 @@ body {
   font-size: 11px; padding: 3px 6px; border-radius: 4px;
 }
 #docProjClear:hover { color: var(--rec); }
+#docConvert {
+  margin-left: auto; border: 1px solid var(--border); background: var(--bg-2);
+  color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+}
+#docConvert:hover { border-color: var(--accent); }
 .doc-item.dragging { opacity: 0.45; }
 .doc-item.drop-above { box-shadow: inset 0 2px 0 var(--accent); }
 .doc-item.drop-below { box-shadow: inset 0 -2px 0 var(--accent); }

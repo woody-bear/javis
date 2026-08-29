@@ -56,18 +56,62 @@ function setConfig(patch) {
 function treePath() { return path.join(docsDir(), '.doctree.json') }
 function orderPath() { return path.join(docsDir(), '.docorder.json') }
 function docProjectsPath() { return path.join(docsDir(), '.docprojects.json') }
-/** 문서에 연결된 프로젝트 폴더 (없거나 사라졌으면 null → 전역 기본 사용) */
+function rootsPath() { return path.join(docsDir(), '.docroots.json') }
+
+/** 문서에 연결된 프로젝트 — 자신에 없으면 상위 갈래로 거슬러 올라가 상속 */
 function docProject(docId) {
   const m = readJson(docProjectsPath(), {})
-  const v = m[docId]
-  return v && fs.existsSync(v) ? v : null
+  const tree = readTree()
+  let cur = docId
+  for (let hop = 0; cur && hop < 12; hop += 1) {
+    const v = m[cur]
+    if (v && fs.existsSync(v)) return v
+    cur = tree[cur]
+  }
+  return null
+}
+
+/** 문서 파일이 실제로 놓인 폴더 — 프로젝트 연결 시 <프로젝트>/jarvis, 아니면 중앙 docs */
+function docRoots() { return readJson(rootsPath(), {}) }
+function rootOf(id) {
+  const r = docRoots()[id]
+  return r && fs.existsSync(r) ? r : docsDir()
+}
+function docFile(id) { return path.join(rootOf(id), path.basename(id)) }
+
+/** 하위 갈래 전체 (자신 제외, 깊이 우선) */
+function descendantsOf(id) {
+  const tree = readTree()
+  const out = []
+  const walk = (p) => {
+    for (const [c, par] of Object.entries(tree)) {
+      if (par === p) { out.push(c); walk(c) }
+    }
+  }
+  walk(id)
+  return out
+}
+
+/** 문서+하위 갈래를 targetDir로 물리 이동 (중앙 docs면 루트 매핑 제거) */
+function moveDocTree(id, targetDir) {
+  fs.mkdirSync(targetDir, { recursive: true })
+  const roots = docRoots()
+  const central = docsDir()
+  for (const d of [id, ...descendantsOf(id)]) {
+    const from = docFile(d)
+    const to = path.join(targetDir, path.basename(d))
+    if (from !== to && fs.existsSync(from)) fs.renameSync(from, to)
+    if (path.resolve(targetDir) === path.resolve(central)) delete roots[d]
+    else roots[d] = targetDir
+  }
+  writeJson(rootsPath(), roots)
 }
 function readTree() { return readJson(treePath(), {}) }
 function writeTree(t) { writeJson(treePath(), t) }
 
 /** 상위 문서의 '갈래' 섹션에 하위 문서 링크 추가 (md/html 자동 판별, 없으면 섹션 생성) */
 function addBranchLink(parentId, childId, childTitle) {
-  const pp = path.join(docsDir(), parentId)
+  const pp = docFile(parentId)
   if (!fs.existsSync(pp)) return
   let doc = fs.readFileSync(pp, 'utf8')
   if (parentId.endsWith('.md')) {
@@ -89,7 +133,7 @@ function addBranchLink(parentId, childId, childTitle) {
   fs.writeFileSync(pp, doc)
 }
 function removeBranchLink(parentId, childId) {
-  const pp = path.join(docsDir(), parentId)
+  const pp = docFile(parentId)
   if (!fs.existsSync(pp)) return
   const html = fs.readFileSync(pp, 'utf8')
   const re = new RegExp(`\\s*<li><a href="${childId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>[^<]*</a></li>`, 'g')
@@ -99,7 +143,9 @@ function removeBranchLink(parentId, childId) {
 // ── 문서 관리 ─────────────────────────────────────────────────────
 function slugify(title) {
   const base = title.trim().replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'doc'
-  const taken = (n) => fs.existsSync(path.join(docsDir(), `${n}.md`)) || fs.existsSync(path.join(docsDir(), `${n}.html`))
+  const dirs = [docsDir(), ...new Set(Object.values(docRoots()))]
+  const taken = (n) => dirs.some((d) =>
+    fs.existsSync(path.join(d, `${n}.md`)) || fs.existsSync(path.join(d, `${n}.html`)))
   let name = base
   let i = 2
   while (taken(name)) { name = `${base}-${i}`; i += 1 }
@@ -107,7 +153,7 @@ function slugify(title) {
 }
 function docTitle(file) {
   try {
-    const head = fs.readFileSync(path.join(docsDir(), file), 'utf8').slice(0, 4096)
+    const head = fs.readFileSync(docFile(file), 'utf8').slice(0, 4096)
     if (file.endsWith('.md')) {
       const m = /^#\s+(.+)$/m.exec(head)
       if (m && m[1].trim()) return m[1].trim()
@@ -121,10 +167,19 @@ function docTitle(file) {
 function listDocs() {
   ensureDirs()
   const tree = readTree()
-  const files = new Set(fs.readdirSync(docsDir()).filter((f) => f.endsWith('.html') || f.endsWith('.md')))
+  // 중앙 docs + 프로젝트별 jarvis 폴더에 흩어진 문서를 모두 나열
+  const entry = new Map()
+  for (const f of fs.readdirSync(docsDir())) {
+    if (f.endsWith('.html') || f.endsWith('.md')) entry.set(f, path.join(docsDir(), f))
+  }
+  for (const [id, dir] of Object.entries(docRoots())) {
+    const fp = path.join(dir, path.basename(id))
+    if (fs.existsSync(fp)) entry.set(id, fp)
+  }
+  const files = new Set(entry.keys())
   return [...files]
     .map((f) => {
-      const st = fs.statSync(path.join(docsDir(), f))
+      const st = fs.statSync(entry.get(f))
       const parent = tree[f]
       return {
         id: f, title: docTitle(f), mtime: st.mtimeMs, birthtime: st.birthtimeMs,
@@ -179,6 +234,34 @@ ${parentLink}<p class="meta">Jarvis 문서 · 음성/텍스트 피드백으로 �
 </body></html>\n`
 }
 
+/** 문서 id 변경 시 모든 매핑(세션·트리·순서·프로젝트·루트·부모 링크) 일괄 갱신 */
+function renameDocId(oldId, newId) {
+  const ss = readJson(SESSIONS_PATH, {})
+  if (ss[oldId]) { ss[newId] = ss[oldId]; delete ss[oldId]; writeJson(SESSIONS_PATH, ss) }
+  const tree = readTree()
+  let changed = false
+  if (tree[oldId] !== undefined) { tree[newId] = tree[oldId]; delete tree[oldId]; changed = true }
+  for (const k of Object.keys(tree)) if (tree[k] === oldId) { tree[k] = newId; changed = true }
+  if (changed) writeTree(tree)
+  const o = readJson(orderPath(), {})
+  let oc = false
+  for (const g of Object.keys(o)) {
+    const i = (o[g] || []).indexOf(oldId)
+    if (i >= 0) { o[g][i] = newId; oc = true }
+  }
+  if (o[oldId]) { o[newId] = o[oldId]; delete o[oldId]; oc = true }
+  if (oc) writeJson(orderPath(), o)
+  for (const pth of [docProjectsPath(), rootsPath()]) {
+    const m = readJson(pth, {})
+    if (m[oldId] !== undefined) { m[newId] = m[oldId]; delete m[oldId]; writeJson(pth, m) }
+  }
+  const parent = readTree()[newId]
+  if (parent && fs.existsSync(docFile(parent))) {
+    const f = docFile(parent)
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').split(oldId).join(newId))
+  }
+}
+
 // ── Claude 실행 ───────────────────────────────────────────────────
 function findClaude() {
   const candidates = [
@@ -230,10 +313,9 @@ function toolDetail(input) {
 function runClaude(docId, message, sender) {
   if (claudeProc) return Promise.reject(new Error('이전 작업이 아직 실행 중입니다'))
   const cfg = getConfig()
-  const docPath = path.join(docsDir(), docId)
+  const docPath = docFile(docId)
   const parentId = readTree()[docId]
-  const parentPath = parentId && fs.existsSync(path.join(docsDir(), parentId))
-    ? path.join(docsDir(), parentId) : null
+  const parentPath = parentId && fs.existsSync(docFile(parentId)) ? docFile(parentId) : null
   const sessions = readJson(SESSIONS_PATH, {})
   const prev = sessions[docId]
 
@@ -244,8 +326,10 @@ function runClaude(docId, message, sender) {
     '--dangerously-skip-permissions',
   ]
   if (prev) args.push('--resume', prev)
-  // 문서 디렉토리 접근 허용 (cwd 밖 파일 수정)
+  // 문서 디렉토리 접근 허용 (중앙 + 이 문서의 저장 폴더)
   args.push('--add-dir', docsDir())
+  const own = rootOf(docId)
+  if (path.resolve(own) !== path.resolve(docsDir())) args.push('--add-dir', own)
 
   const emit = (ev) => { if (sender && !sender.isDestroyed()) sender.send('chat:event', ev) }
 
@@ -379,7 +463,14 @@ function registerIpc() {
   ipcMain.handle('docs:createBranch', (_e, { parentId, title }) => {
     ensureDirs()
     const id = slugify(title)
-    fs.writeFileSync(path.join(docsDir(), id), skeletonHtml(title, parentId, docTitle(parentId)))
+    // 하위 갈래는 상위 문서의 저장 폴더(프로젝트/jarvis)에 자동 배치
+    const dir = rootOf(parentId)
+    fs.writeFileSync(path.join(dir, id), skeletonHtml(title, parentId, docTitle(parentId)))
+    if (path.resolve(dir) !== path.resolve(docsDir())) {
+      const roots = docRoots()
+      roots[id] = dir
+      writeJson(rootsPath(), roots)
+    }
     const tree = readTree()
     tree[id] = parentId
     writeTree(tree)
@@ -387,7 +478,7 @@ function registerIpc() {
     return { id }
   })
   ipcMain.handle('docs:delete', (_e, id) => {
-    const p = path.join(docsDir(), path.basename(id))
+    const p = docFile(id)
     if (fs.existsSync(p)) fs.unlinkSync(p)
     const s = readJson(SESSIONS_PATH, {})
     delete s[id]
@@ -401,21 +492,47 @@ function registerIpc() {
     const pm = readJson(docProjectsPath(), {})
     delete pm[id]
     writeJson(docProjectsPath(), pm)
+    const roots = docRoots()
+    delete roots[id]
+    writeJson(rootsPath(), roots)
     return { ok: true }
   })
-  ipcMain.handle('docs:path', (_e, id) => path.join(docsDir(), path.basename(id)))
+  ipcMain.handle('docs:path', (_e, id) => docFile(id))
   ipcMain.handle('docs:read', (_e, id) => {
-    try { return fs.readFileSync(path.join(docsDir(), path.basename(id)), 'utf8') } catch { return '' }
+    try { return fs.readFileSync(docFile(id), 'utf8') } catch { return '' }
   })
   ipcMain.handle('docs:write', (_e, { id, content }) => {
-    fs.writeFileSync(path.join(docsDir(), path.basename(id)), content)
+    fs.writeFileSync(docFile(id), content)
     return { ok: true }
+  })
+  // 레거시 HTML 문서 → Markdown 전환 (블록 편집용). content = 변환된 md.
+  ipcMain.handle('docs:convertToMd', (_e, { id, content }) => {
+    const dir = rootOf(id)
+    let newId = path.basename(id).replace(/\.html$/, '.md')
+    let i = 2
+    while (fs.existsSync(path.join(dir, newId))) { newId = path.basename(id).replace(/\.html$/, `-${i}.md`); i += 1 }
+    fs.writeFileSync(path.join(dir, newId), content)
+    if (path.resolve(dir) !== path.resolve(docsDir())) {
+      const roots = docRoots()
+      roots[newId] = dir
+      writeJson(rootsPath(), roots)
+    }
+    try { fs.unlinkSync(path.join(dir, path.basename(id))) } catch { /* noop */ }
+    renameDocId(id, newId)
+    return { id: newId }
   })
   // 수동 정렬 순서 — { "": [루트 ids], "<parentId>": [하위 ids] }
   ipcMain.handle('docs:getOrder', () => readJson(orderPath(), {}))
   ipcMain.handle('docs:getProject', (_e, id) => {
-    const own = docProject(id)
-    return { path: own, effective: own || getConfig().projectPath, isOwn: !!own }
+    const m = readJson(docProjectsPath(), {})
+    const own = m[id] && fs.existsSync(m[id]) ? m[id] : null
+    const walked = docProject(id)
+    return {
+      path: own,
+      effective: walked || getConfig().projectPath,
+      isOwn: !!own,
+      inherited: !own && !!walked,   // 상위 갈래에서 상속
+    }
   })
   ipcMain.handle('docs:pickProject', async (_e, id) => {
     const r = await dialog.showOpenDialog(win, {
@@ -424,9 +541,12 @@ function registerIpc() {
       defaultPath: path.join(os.homedir(), 'workflow'),
     })
     if (!r.canceled && r.filePaths[0]) {
+      const proj = r.filePaths[0]
       const m = readJson(docProjectsPath(), {})
-      m[id] = r.filePaths[0]
+      m[id] = proj
       writeJson(docProjectsPath(), m)
+      // 문서(+하위 갈래)를 <프로젝트>/jarvis 폴더로 이동 — 이후 갈래도 이 폴더에 생성됨
+      moveDocTree(id, path.join(proj, 'jarvis'))
     }
     const own = docProject(id)
     return { path: own, effective: own || getConfig().projectPath, isOwn: !!own }
@@ -435,6 +555,8 @@ function registerIpc() {
     const m = readJson(docProjectsPath(), {})
     delete m[id]
     writeJson(docProjectsPath(), m)
+    // 문서(+하위 갈래)를 중앙 docs 폴더로 회수
+    moveDocTree(id, docsDir())
     return { path: null, effective: getConfig().projectPath, isOwn: false }
   })
   ipcMain.handle('docs:setOrder', (_e, { group, ids }) => {
