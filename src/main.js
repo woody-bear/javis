@@ -503,6 +503,23 @@ function registerIpc() {
   ipcMain.handle('docs:read', (_e, id) => {
     try { return fs.readFileSync(docFile(id), 'utf8') } catch { return '' }
   })
+  // 문서 제목 변경 — 파일 id는 유지(세션·매핑 불변), 첫 H1(md) 또는 <title>(html)만 교체
+  ipcMain.handle('docs:rename', (_e, { id, title }) => {
+    const t = String(title || '').replace(/[\r\n]+/g, ' ').trim()
+    if (!t) return { ok: false, error: '제목이 비어 있습니다' }
+    const f = docFile(id)
+    if (!fs.existsSync(f)) return { ok: false, error: '문서 파일이 없습니다' }
+    let src = fs.readFileSync(f, 'utf8')
+    if (id.endsWith('.md')) {
+      if (/^#\s+.+$/m.test(src)) src = src.replace(/^#\s+.+$/m, `# ${t}`)
+      else src = `# ${t}\n\n${src}`
+    } else {
+      if (/<title>[^<]*<\/title>/i.test(src)) src = src.replace(/<title>[^<]*<\/title>/i, `<title>${t}</title>`)
+      else src = src.replace(/<head[^>]*>/i, (m) => `${m}<title>${t}</title>`)
+    }
+    fs.writeFileSync(f, src)
+    return { ok: true, title: t }
+  })
   ipcMain.handle('docs:write', (_e, { id, content }) => {
     fs.writeFileSync(docFile(id), content)
     return { ok: true }

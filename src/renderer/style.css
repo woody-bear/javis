@@ -57,11 +57,14 @@ body {
 .doc-item.active { background: var(--bg-3); color: var(--fg-0); }
 .doc-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .doc-item .tw { color: var(--fg-2); font-size: 11px; flex-shrink: 0; }
-.doc-item .del, .doc-item .branch {
+.doc-item .del, .doc-item .branch, .doc-item .rename {
   visibility: hidden; border: none; background: transparent; color: var(--fg-2);
   cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; flex-shrink: 0;
 }
-.doc-item:hover .del, .doc-item:hover .branch { visibility: visible; }
+.doc-item:hover .del, .doc-item:hover .branch, .doc-item:hover .rename { visibility: visible; }
+.doc-item .rename:hover { color: var(--accent); }
+.doc-item .rename-input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; color: var(--fg-0); background: var(--bg-0); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 5px; outline: none; }
+.doc-item.editing .del, .doc-item.editing .branch, .doc-item.editing .rename { visibility: hidden; }
 .doc-item .del:hover { color: var(--rec); }
 .doc-item .branch:hover { color: var(--accent); }
 

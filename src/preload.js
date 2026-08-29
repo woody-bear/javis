@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('jarvis', {
     pickProject: (id) => ipcRenderer.invoke('docs:pickProject', id),
     clearProject: (id) => ipcRenderer.invoke('docs:clearProject', id),
     reveal: (id) => ipcRenderer.invoke('docs:reveal', id),
+    rename: (id, title) => ipcRenderer.invoke('docs:rename', { id, title }),
   },
   events: {
     onAutoCreated: (cb) => ipcRenderer.on('docs:autocreated', (_e, list) => cb(list)),

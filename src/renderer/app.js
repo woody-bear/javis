@@ -78,10 +78,47 @@ async function refreshDocs(selectId) {
       refreshDocs()
     })
     el.innerHTML = `${depth > 0 ? '<span class="tw">↳</span>' : ''}<span class="t"></span>` +
+      `<button class="rename" title="이름 변경 (더블클릭도 가능)">✎</button>` +
       `<button class="branch" title="갈래 만들기 — 이 문서에서 주제 분기">⑂</button>` +
       `<button class="del" title="삭제">✕</button>`
     el.querySelector('.t').textContent = d.title
-    el.addEventListener('click', () => selectDoc(d.id))
+    el.addEventListener('click', () => { if (!el.classList.contains('editing')) selectDoc(d.id) })
+    // ── 이름 변경: ✎ 버튼 또는 제목 더블클릭 → 인라인 입력 (Enter 저장 / Esc 취소) ──
+    const startRename = (e) => {
+      e.stopPropagation()
+      if (el.classList.contains('editing')) return
+      el.classList.add('editing')
+      el.draggable = false
+      const t = el.querySelector('.t')
+      const input = document.createElement('input')
+      input.className = 'rename-input'
+      input.value = d.title
+      t.replaceWith(input)
+      input.focus(); input.select()
+      let done = false
+      const finish = async (save) => {
+        if (done) return
+        done = true
+        const nt = input.value.trim()
+        input.replaceWith(t)
+        el.classList.remove('editing')
+        el.draggable = true
+        if (!save || !nt || nt === d.title) return
+        const r = await window.jarvis.docs.rename(d.id, nt)
+        if (!r || !r.ok) { alert((r && r.error) || '이름 변경 실패'); return }
+        if (currentDoc === d.id) reloadFrame()
+        refreshDocs()
+      }
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); finish(true) }
+        else if (ev.key === 'Escape') { ev.preventDefault(); finish(false) }
+        ev.stopPropagation()
+      })
+      input.addEventListener('blur', () => finish(true))
+      input.addEventListener('click', (ev) => ev.stopPropagation())
+    }
+    el.querySelector('.rename').addEventListener('click', startRename)
+    el.addEventListener('dblclick', startRename)
     el.querySelector('.branch').addEventListener('click', (e) => {
       e.stopPropagation()
       openModal(d.id, d.title)
