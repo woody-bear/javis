@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self' file:; media-src 'self' blob:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; frame-src 'self' file:; media-src 'self' blob:; connect-src 'self' file: blob: data:">
 <title>Jarvis</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -21,6 +21,8 @@
           <span id="projPath">—</span>
         </div>
         <label class="spk-row"><input type="checkbox" id="chkWake"> 🎙 "자비스" 호출 대기</label>
+        <label class="spk-row"><input type="checkbox" id="chkGesture"> ✊ 주먹 제스처 대기 (카메라)</label>
+        <div id="gestureStatus" class="stt-status"></div>
         <div id="wakeStatus" class="stt-status"></div>
         <div id="sttStatus" class="stt-status"></div>
       </div>
@@ -69,6 +71,7 @@
     </div>
   </div>
 
+  <video id="gestureCam" autoplay playsinline muted style="display:none"></video>
   <script src="app.js"></script>
 </body>
 </html>

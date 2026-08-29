@@ -316,6 +316,8 @@ async function loadConfig() {
   $('projPath').textContent = cfg.projectPath
   $('chkWake').checked = !!cfg.wakeMode
   if (cfg.wakeMode) startWake().catch(() => { $('chkWake').checked = false })
+  $('chkGesture').checked = !!cfg.gestureMode
+  if (cfg.gestureMode) startGesture().catch(() => { $('chkGesture').checked = false })
   const stt = await window.jarvis.stt.ready()
   const el = $('sttStatus')
   if (stt.bin && stt.model) { el.textContent = 'STT 준비됨 (whisper 로컬)'; el.classList.remove('err') }
@@ -468,6 +470,87 @@ $('chkWake').addEventListener('change', async (e) => {
     e.target.checked = false
     window.jarvis.config.set({ wakeMode: false })
     $('wakeStatus').textContent = `마이크 접근 실패: ${err.message}`
+  }
+})
+
+
+// ── ✊ 주먹 제스처 대기 (카메라) ───────────────────────────────────
+// MediaPipe GestureRecognizer(로컬 WASM·모델) — 'Closed_Fist' 연속 감지 시 녹음 시작.
+const GESTURE_FPS_MS = 120        // ~8fps — CPU 절약
+const GESTURE_SCORE = 0.55
+const GESTURE_HITS = 3            // 연속 프레임 수 (오인식 방지)
+const GESTURE_COOLDOWN_MS = 4000
+
+let gestureOn = false
+let gestureRecognizer = null
+let gestureStream = null
+let gestureTimer = null
+let gestureHits = 0
+let gestureLastFire = 0
+
+async function startGesture() {
+  if (gestureOn) return
+  $('gestureStatus').textContent = '카메라·모델 로딩 중…'
+  const video = $('gestureCam')
+  gestureStream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480, frameRate: 15 },
+  })
+  video.srcObject = gestureStream
+  await video.play()
+
+  if (!gestureRecognizer) {
+    const vision = await import('./vendor/tasks-vision/vision_bundle.mjs')
+    const fileset = await vision.FilesetResolver.forVisionTasks('./vendor/tasks-vision/wasm')
+    gestureRecognizer = await vision.GestureRecognizer.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: './vendor/models/gesture_recognizer.task' },
+      runningMode: 'VIDEO',
+      numHands: 1,
+    })
+  }
+
+  gestureHits = 0
+  gestureTimer = setInterval(() => {
+    if (!gestureOn || recording || busy || wakeSttBusy) { gestureHits = 0; return }
+    if (video.readyState < 2) return
+    let result
+    try { result = gestureRecognizer.recognizeForVideo(video, performance.now()) } catch { return }
+    const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
+    if (g && g.categoryName === 'Closed_Fist' && g.score >= GESTURE_SCORE) {
+      gestureHits += 1
+      if (gestureHits >= GESTURE_HITS && Date.now() - gestureLastFire > GESTURE_COOLDOWN_MS) {
+        gestureLastFire = Date.now()
+        gestureHits = 0
+        ding()
+        startRecording().catch(() => {})
+      }
+    } else {
+      gestureHits = 0
+    }
+  }, GESTURE_FPS_MS)
+
+  gestureOn = true
+  $('gestureStatus').textContent = '대기 중 — 카메라에 ✊ 주먹을 보이면 듣기 시작'
+}
+
+async function stopGesture() {
+  if (!gestureOn) return
+  gestureOn = false
+  if (gestureTimer) { clearInterval(gestureTimer); gestureTimer = null }
+  if (gestureStream) { gestureStream.getTracks().forEach((t) => t.stop()); gestureStream = null }
+  $('gestureCam').srcObject = null
+  $('gestureStatus').textContent = ''
+}
+
+$('chkGesture').addEventListener('change', async (e) => {
+  const on = e.target.checked
+  window.jarvis.config.set({ gestureMode: on })
+  try {
+    if (on) await startGesture()
+    else await stopGesture()
+  } catch (err) {
+    e.target.checked = false
+    window.jarvis.config.set({ gestureMode: false })
+    $('gestureStatus').textContent = `카메라/모델 로드 실패: ${(err && err.message) || err}`
   }
 })
 

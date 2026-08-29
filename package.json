@@ -36,11 +36,15 @@
       ],
       "identity": null,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "음성 피드백 입력에 마이크를 사용합니다."
+        "NSMicrophoneUsageDescription": "음성 피드백 입력에 마이크를 사용합니다.",
+        "NSCameraUsageDescription": "주먹 제스처로 음성인식을 시작하기 위해 카메라를 사용합니다."
       }
     },
     "dmg": {
       "title": "Jarvis"
     }
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1"
   }
 }

@@ -42,6 +42,7 @@ function getConfig() {
     voice: 'Yuna',
     speakReplies: true,
     wakeMode: false,
+    gestureMode: false,
     ...readJson(CONFIG_PATH, {}),
   }
 }
@@ -391,6 +392,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // 로컬 개인용 앱 — MediaPipe wasm/모델을 file://에서 fetch하기 위해 완화
+      webSecurity: false,
     },
   })
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
