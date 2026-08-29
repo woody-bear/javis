@@ -168,7 +168,7 @@ jarvis/
 | 문서 | 프로젝트 | git | GitHub 원격 | 상태 |
 |------|----------|-----|-------------|------|
 | 추세추종프로젝트 | `trading_view` | ✅ 440 커밋 | ✅ `woody-bear/trading_view` (private) | 🟢 정상 연결 — origin/main과 동기화(0 ahead/0 behind), 미커밋 1건(`jarvis/`) |
-| jarvis | `jarvis` | ✅ 23 커밋 | ❌ 원격 없음 | 🟡 로컬 git만 — GitHub에 저장소 없음 |
+| jarvis | `jarvis` | ✅ | ✅ `woody-bear/javis` (private) | 🟢 정상 연결 (2026-08-30 push) |
 | 인터벌러너 | `Intervelrunner` | ⚠️ 1 커밋(Initial) | ❌ 원격 없음 | 🟡 로컬 git만 — 미커밋 17건(소스 대부분) |
 | ai_helper | `ai_helper` | ❌ | ❌ | 🔴 git 저장소 아님 |
 | intervel | `intervel` | ❌ | ❌ | 🔴 git 저장소 아님 |
