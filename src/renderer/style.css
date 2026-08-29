@@ -13,6 +13,8 @@
   --accent: #d99a3d;
 }
 * { box-sizing: border-box; }
+/* display:flex 지정 요소도 hidden 속성이 항상 이기도록 (모달·작업표시줄 닫힘 버그 수정) */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--fg-0);
