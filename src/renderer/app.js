@@ -951,6 +951,36 @@ function showGestureToast(icon, label) {
 let branchOffer = null   // { parentId, until } — 👌 제스처로 갈래 생성 제안 활성
 let sttIntent = null     // { type: 'branchTitle', parentId } — 다음 음성 인식의 용도
 
+/** 전체 화면에서 ☝👇 — 문서를 블록 단위로 스크롤 */
+function scrollDocByBlock(delta) {
+  if (currentDoc && currentDoc.endsWith('.md')) {
+    const view = $('mdView')
+    const blocks = [...view.querySelectorAll('.blk')]
+    if (!blocks.length) return
+    const top = view.scrollTop
+    if (delta > 0) {
+      const next = blocks.find((b) => b.offsetTop > top + 8)
+      if (!next) { showGestureToast('👇', '문서 끝'); return }
+      view.scrollTo({ top: Math.max(next.offsetTop - 8, 0), behavior: 'smooth' })
+      showGestureToast('👇', '한 블록 아래')
+    } else {
+      const prevs = blocks.filter((b) => b.offsetTop < top - 8)
+      const prev = prevs[prevs.length - 1]
+      if (!prev && top <= 8) { showGestureToast('☝', '문서 처음'); return }
+      view.scrollTo({ top: prev ? Math.max(prev.offsetTop - 8, 0) : 0, behavior: 'smooth' })
+      showGestureToast('☝', '한 블록 위')
+    }
+    tick()
+  } else {
+    // 레거시 HTML 문서 — iframe 내부를 화면 절반씩 스크롤
+    try {
+      $('docFrame').contentWindow.scrollBy({ top: delta * 400, behavior: 'smooth' })
+      showGestureToast(delta > 0 ? '👇' : '☝', delta > 0 ? '아래로' : '위로')
+      tick()
+    } catch { /* noop */ }
+  }
+}
+
 function navigateInto() {
   const child = docFirstChild[currentDoc]
   if (!child) {
@@ -1158,7 +1188,8 @@ async function startGesture() {
         if (dir && navHits >= 2 && Date.now() - navLastFire > NAV_COOLDOWN_MS) {
           navLastFire = Date.now()
           navHits = 0
-          if (dir === 'up') navigateDoc(-1)
+          if (document.body.classList.contains('doc-full') && (dir === 'up' || dir === 'down')) scrollDocByBlock(dir === 'up' ? -1 : 1)
+          else if (dir === 'up') navigateDoc(-1)
           else if (dir === 'down') navigateDoc(1)
           else if (dir === 'right') navigateInto()
         }
@@ -1204,7 +1235,8 @@ async function startGesture() {
       if (dir && navHits >= 2 && Date.now() - navLastFire > NAV_COOLDOWN_MS) {
         navLastFire = Date.now()
         navHits = 0
-        if (dir === 'up') navigateDoc(-1)
+        if (document.body.classList.contains('doc-full') && (dir === 'up' || dir === 'down')) scrollDocByBlock(dir === 'up' ? -1 : 1)
+          else if (dir === 'up') navigateDoc(-1)
         else if (dir === 'down') navigateDoc(1)
         else if (dir === 'right') navigateInto()   // 세부문서(첫 갈래)로 진입
         // 'left'는 예약 (현재 미사용)
