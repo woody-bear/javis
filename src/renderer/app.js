@@ -943,8 +943,8 @@ async function startGesture() {
   gestureHits = 0
   let handSeen = false
   gestureTimer = setInterval(() => {
-    // 녹음(음성 대기) 중에도 주먹 토글은 감지해야 하므로 recording은 여기서 거르지 않음
-    if (!gestureOn || busy || wakeSttBusy) { gestureHits = 0; return }
+    // 녹음·작업 중에도 제스처 인식 유지 (음성 인식(STT) 처리 중에만 잠깐 정지)
+    if (!gestureOn || wakeSttBusy) { gestureHits = 0; return }
     if (video.readyState < 2) return
     let result
     try { result = gestureRecognizer.recognizeForVideo(video, performance.now()) } catch { return }
@@ -959,8 +959,8 @@ async function startGesture() {
     const lm = result && result.landmarks && result.landmarks[0]
     const isFist = g && g.categoryName === 'Closed_Fist' && g.score >= GESTURE_SCORE
 
-    // 👌 — 갈래 생성 제안이 활성일 때: 확인 → 갈래 주제 음성 입력 시작
-    if (!recording && branchOffer && Date.now() < branchOffer.until && lm && isOkSign(lm)) {
+    // 👌 — 갈래 생성 제안이 활성일 때: 확인 → 갈래 주제 음성 입력 시작 (작업 중 제외)
+    if (!recording && !busy && branchOffer && Date.now() < branchOffer.until && lm && isOkSign(lm)) {
       okHits += 1
       if (okHits >= GESTURE_HITS && Date.now() - gestureLastFire > 1500) {
         gestureLastFire = Date.now()
@@ -977,6 +977,31 @@ async function startGesture() {
       return
     }
     okHits = 0
+
+    // ── Claude 작업 중: 문서 탐색(☝👇👉)은 허용, 음성 시작(✊)은 안내만 ──
+    if (busy) {
+      if (isFist) {
+        gestureHits += 1
+        if (gestureHits >= GESTURE_HITS && Date.now() - gestureLastFire > GESTURE_COOLDOWN_MS) {
+          gestureLastFire = Date.now()
+          gestureHits = 0
+          showGestureToast('✊⏳', '작업 실행 중 — ESC로 중단 후 사용하세요')
+        }
+      } else {
+        gestureHits = 0
+        const dir = lm ? pointingDir(lm) : null
+        if (dir && dir === navLastDir) navHits += 1
+        else { navHits = dir ? 1 : 0; navLastDir = dir }
+        if (dir && navHits >= 2 && Date.now() - navLastFire > NAV_COOLDOWN_MS) {
+          navLastFire = Date.now()
+          navHits = 0
+          if (dir === 'up') navigateDoc(-1)
+          else if (dir === 'down') navigateDoc(1)
+          else if (dir === 'right') navigateInto()
+        }
+      }
+      return
+    }
 
     // ── 음성 대기(녹음) 중: 주먹 다시 쥐면 → 녹음 취소 + 텍스트 입력 대기 전환 ──
     if (recording) {
