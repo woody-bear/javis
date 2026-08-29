@@ -892,7 +892,8 @@ async function startGesture() {
   gestureHits = 0
   let handSeen = false
   gestureTimer = setInterval(() => {
-    if (!gestureOn || recording || busy || wakeSttBusy) { gestureHits = 0; return }
+    // 녹음(음성 대기) 중에도 주먹 토글은 감지해야 하므로 recording은 여기서 거르지 않음
+    if (!gestureOn || busy || wakeSttBusy) { gestureHits = 0; return }
     if (video.readyState < 2) return
     let result
     try { result = gestureRecognizer.recognizeForVideo(video, performance.now()) } catch { return }
@@ -905,13 +906,33 @@ async function startGesture() {
     }
     const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
     const lm = result && result.landmarks && result.landmarks[0]
-    if (g && g.categoryName === 'Closed_Fist' && g.score >= GESTURE_SCORE) {
+    const isFist = g && g.categoryName === 'Closed_Fist' && g.score >= GESTURE_SCORE
+
+    // ── 음성 대기(녹음) 중: 주먹 다시 쥐면 → 녹음 취소 + 텍스트 입력 대기 전환 ──
+    if (recording) {
+      if (isFist) {
+        gestureHits += 1
+        if (gestureHits >= GESTURE_HITS && Date.now() - gestureLastFire > GESTURE_COOLDOWN_MS) {
+          gestureLastFire = Date.now()
+          gestureHits = 0
+          stopRecording(false)   // 전송하지 않고 취소
+          showGestureToast('✊⌨', '텍스트 입력 대기')
+          $('input').focus()
+        }
+      } else {
+        gestureHits = 0
+      }
+      navHits = 0
+      return
+    }
+
+    if (isFist) {
       gestureHits += 1
       navHits = 0
       if (gestureHits >= GESTURE_HITS && Date.now() - gestureLastFire > GESTURE_COOLDOWN_MS) {
         gestureLastFire = Date.now()
         gestureHits = 0
-        showGestureToast('✊', '듣기 시작')
+        showGestureToast('✊🎙', '음성 대기 — 다시 주먹 쥐면 텍스트 입력')
         ding()
         startRecording().catch(() => {})
       }
