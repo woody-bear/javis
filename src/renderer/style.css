@@ -39,6 +39,7 @@ body {
   transition: background 0.2s;
 }
 .rec-dot.live { background: var(--rec); box-shadow: 0 0 0 4px var(--rec-soft); animation: pulse 1.4s infinite; }
+.rec-dot.standby { background: var(--rec); opacity: 0.45; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 8px transparent; } }
 #btnNewDoc {
   width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border);

@@ -41,6 +41,7 @@ function getConfig() {
     docsPath: DEFAULT_DOCS_DIR,
     voice: 'Yuna',
     speakReplies: true,
+    wakeMode: false,
     ...readJson(CONFIG_PATH, {}),
   }
 }

@@ -314,6 +314,8 @@ function encodeWav16k(float32Chunks, srcRate) {
 async function loadConfig() {
   const cfg = await window.jarvis.config.get()
   $('projPath').textContent = cfg.projectPath
+  $('chkWake').checked = !!cfg.wakeMode
+  if (cfg.wakeMode) startWake().catch(() => { $('chkWake').checked = false })
   const stt = await window.jarvis.stt.ready()
   const el = $('sttStatus')
   if (stt.bin && stt.model) { el.textContent = 'STT 준비됨 (whisper 로컬)'; el.classList.remove('err') }
@@ -335,6 +337,137 @@ document.addEventListener('keydown', (e) => {
   if (busy) {
     window.jarvis.chat.abort()
     $('activityText').textContent = '중단하는 중…'
+  }
+})
+
+
+// ── "자비스" 호출어 대기 모드 ─────────────────────────────────────
+// 마이크를 상시로 열어두고 발화 구간(에너지 기반)만 잘라 로컬 whisper로 인식.
+// "자비스"로 시작하면: 뒤에 명령이 붙어 있으면 바로 실행, 호출어만 말했으면
+// 띵- 소리 후 일반 녹음 모드로 전환해 명령을 듣는다. 외부 서비스 불필요.
+const WAKE_RMS = 0.015
+const UTT_SIL_MS = 900       // 발화 종료 판정 무음
+const UTT_MAX_MS = 8000
+const UTT_MIN_MS = 350
+const WAKE_RE = /(자비스|쟈비스|자비수|자비쓰|jarvis)[야아이,.!?~\s]*(.*)/i
+
+let wakeOn = false
+let wakeCtx = null
+let wakeStream = null
+let wakeNodes = []
+let wakeSttBusy = false
+
+function ding() {
+  try {
+    const ac = new AudioContext()
+    const o = ac.createOscillator()
+    const g = ac.createGain()
+    o.frequency.value = 880
+    g.gain.setValueAtTime(0.12, ac.currentTime)
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.25)
+    o.connect(g); g.connect(ac.destination)
+    o.start(); o.stop(ac.currentTime + 0.26)
+    setTimeout(() => ac.close(), 400)
+  } catch { /* noop */ }
+}
+
+async function handleUtterance(chunks, sampleRate) {
+  if (wakeSttBusy || busy || recording) return
+  wakeSttBusy = true
+  try {
+    const wav = encodeWav16k(chunks, sampleRate)
+    const res = await window.jarvis.stt.transcribe(wav)
+    const t = ((res.ok && res.text) || '').replace(/\s+/g, ' ').trim()
+    if (!t) return
+    const m = t.match(WAKE_RE)
+    if (!m) return
+    const cmd = (m[2] || '').trim()
+    if (cmd.length >= 2) {
+      ding()
+      sendMessage(cmd)
+    } else {
+      // 호출어만 — 띵 소리 후 명령 듣기
+      ding()
+      startRecording().catch(() => {})
+    }
+  } finally {
+    wakeSttBusy = false
+  }
+}
+
+async function startWake() {
+  if (wakeOn) return
+  wakeStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+  wakeCtx = new AudioContext()
+  const src = wakeCtx.createMediaStreamSource(wakeStream)
+  const proc = wakeCtx.createScriptProcessor(4096, 1, 1)
+  const preRoll = []          // 직전 ~0.35초 (호출어 앞부분 소실 방지)
+  let uttActive = false
+  let uttChunks = []
+  let uttStart = 0
+  let uttLastVoice = 0
+
+  proc.onaudioprocess = (e) => {
+    const data = e.inputBuffer.getChannelData(0)
+    const copy = new Float32Array(data)
+    let sum = 0
+    for (let i = 0; i < data.length; i++) sum += data[i] * data[i]
+    const rms = Math.sqrt(sum / data.length)
+    const now = Date.now()
+
+    preRoll.push(copy)
+    if (preRoll.length > 4) preRoll.shift()
+
+    // 수동 녹음/작업/인식 중에는 대기 감지 일시정지
+    if (recording || busy || wakeSttBusy) { uttActive = false; uttChunks = []; return }
+
+    if (!uttActive && rms > WAKE_RMS) {
+      uttActive = true
+      uttChunks = [...preRoll]
+      uttStart = now
+      uttLastVoice = now
+    } else if (uttActive) {
+      uttChunks.push(copy)
+      if (rms > WAKE_RMS) uttLastVoice = now
+      if (now - uttLastVoice > UTT_SIL_MS || now - uttStart > UTT_MAX_MS) {
+        const seg = uttChunks
+        const durMs = now - uttStart - (now - uttLastVoice)
+        uttActive = false
+        uttChunks = []
+        if (durMs >= UTT_MIN_MS) handleUtterance(seg, wakeCtx.sampleRate)
+      }
+    }
+  }
+  src.connect(proc)
+  proc.connect(wakeCtx.destination)
+  wakeNodes = [src, proc]
+  wakeOn = true
+  $('recDot').classList.add('standby')
+  $('wakeStatus').textContent = '대기 중 — "자비스, ○○해줘"라고 말하세요'
+}
+
+async function stopWake() {
+  if (!wakeOn) return
+  wakeOn = false
+  for (const n of wakeNodes) { try { n.disconnect() } catch { /* noop */ } }
+  wakeNodes = []
+  if (wakeStream) wakeStream.getTracks().forEach((t) => t.stop())
+  if (wakeCtx) { try { await wakeCtx.close() } catch { /* noop */ } }
+  wakeStream = null; wakeCtx = null
+  $('recDot').classList.remove('standby')
+  $('wakeStatus').textContent = ''
+}
+
+$('chkWake').addEventListener('change', async (e) => {
+  const on = e.target.checked
+  window.jarvis.config.set({ wakeMode: on })
+  try {
+    if (on) await startWake()
+    else await stopWake()
+  } catch (err) {
+    e.target.checked = false
+    window.jarvis.config.set({ wakeMode: false })
+    $('wakeStatus').textContent = `마이크 접근 실패: ${err.message}`
   }
 })
 
