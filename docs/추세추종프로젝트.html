@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>추세추종프로젝트</title>
+<style>
+  body{background:#1b1a18;color:#ece9e3;font-family:"Apple SD Gothic Neo",sans-serif;
+       line-height:1.7;max-width:760px;margin:0 auto;padding:40px 24px;font-size:15px}
+  h1{font-size:26px;line-height:1.3} h2{font-size:18px;margin-top:36px;border-top:1px solid #3a3733;padding-top:16px}
+  h3{font-size:15px;margin-top:24px;color:#d9c9a3}
+  code{background:#26241f;padding:1px 6px;border-radius:4px;font-size:.88em}
+  pre{background:#26241f;padding:12px 14px;border-radius:6px;overflow-x:auto;font-size:.85em;line-height:1.5}
+  .meta{color:#8d877c;font-size:12px}
+  table{border-collapse:collapse;width:100%;font-size:.92em;margin:12px 0}
+  th,td{border:1px solid #3a3733;padding:6px 10px;text-align:left;vertical-align:top}
+  th{background:#26241f}
+  .note{background:#23261f;border-left:3px solid #8fa36a;padding:8px 14px;margin:14px 0;border-radius:0 6px 6px 0}
+  .warn{background:#2a2220;border-left:3px solid #c9784f;padding:8px 14px;margin:14px 0;border-radius:0 6px 6px 0}
+  .toc a{color:#b9c8a0;text-decoration:none} .toc li{margin:2px 0}
+  .log-item{border:1px solid #3a3733;border-radius:6px;padding:10px 14px;margin:10px 0}
+  .log-item .d{color:#8d877c;font-size:12px}
+</style></head><body>
+<h1>추세추종프로젝트</h1>
+<p class="meta">Jarvis Hub 문서 · 음성/텍스트 피드백으로 보강됩니다 · 최초 작성 2026-08-29</p>
+
+<div class="toc"><ol>
+<li><a href="#what">추세추종이란</a></li>
+<li><a href="#why">왜 작동하는가</a></li>
+<li><a href="#signals">진입 신호의 대표 유형</a></li>
+<li><a href="#exit">청산과 손절</a></li>
+<li><a href="#sizing">포지션 사이징과 리스크</a></li>
+<li><a href="#universe">투자 유니버스와 분산</a></li>
+<li><a href="#metrics">성과 지표와 특성</a></li>
+<li><a href="#backtest">백테스트 시 주의점</a></li>
+<li><a href="#examples">대표 시스템 예시</a></li>
+<li><a href="#plan">프로젝트 구상 (초안)</a></li>
+<li><a href="#refs">참고 자료</a></li>
+<li><a href="#log">작업 로그</a></li>
+</ol></div>
+
+<h2 id="what">1. 추세추종이란</h2>
+<p>추세추종(Trend Following)은 <strong>가격이 오르고 있으면 사고, 내리고 있으면 팔거나 공매도</strong>하는 규칙 기반 투자 전략이다. 가격을 예측하지 않고, 이미 형성된 움직임에 <em>반응</em>하는 것이 핵심이다. 펀더멘털·뉴스·밸류에이션을 보지 않으며, 오직 가격(과 파생된 지표)만 입력으로 쓴다.</p>
+<ul>
+<li><strong>예측이 아니라 반응</strong>: 추세의 시작과 끝을 맞추려 하지 않는다. 중간 부분만 취한다.</li>
+<li><strong>작게 여러 번 잃고, 크게 가끔 번다</strong>: 승률은 보통 30~45%로 낮지만 손익비가 높아 기대값이 양수가 된다.</li>
+<li><strong>완전히 기계적</strong>: 진입·청산·사이징 모두 사전에 정한 규칙으로 실행한다. 재량 개입을 배제한다.</li>
+<li><strong>다자산·양방향</strong>: 주식·채권·통화·원자재·암호화폐 등 유동성 있는 모든 시장에서 롱/숏으로 운용하는 것이 전통적 형태(CTA, Managed Futures).</li>
+</ul>
+
+<h2 id="why">2. 왜 작동하는가</h2>
+<table>
+<tr><th>설명</th><th>내용</th></tr>
+<tr><td>행동재무학적 원인</td><td>투자자의 과소반응(정보가 가격에 천천히 반영), 앵커링, 군집행동, 확인편향 등이 추세를 만들고 연장시킨다.</td></tr>
+<tr><td>위험 프리미엄</td><td>추세추종자는 위기 시 유동성을 공급하고 헤저의 반대편에 서는 대가로 프리미엄을 받는다는 해석.</td></tr>
+<tr><td>실증</td><td>Hurst, Ooi, Pedersen(AQR) 등이 1880년대부터 100년 이상, 수십 개 시장에서 시계열 모멘텀이 양의 수익을 냈음을 보고. Moskowitz·Ooi·Pedersen(2012) "Time Series Momentum"이 대표 논문.</td></tr>
+<tr><td>위기 알파(Crisis Alpha)</td><td>2008, 2022 등 주식 하락장에서 오히려 큰 수익을 내 주식 포트폴리오와의 상관이 낮거나 음수. 포트폴리오 분산 도구로 가치.</td></tr>
+</table>
+<div class="note">추세추종은 "왜 오르는가"를 묻지 않는다. 시장이 <em>실제로</em> 움직이기 시작하면 따라가고, 틀리면 빠르게 인정한다.</div>
+
+<h2 id="signals">3. 진입 신호의 대표 유형</h2>
+<h3>3.1 채널 돌파 (Breakout)</h3>
+<ul>
+<li><strong>Donchian 채널</strong>: 최근 N일 최고가 상향 돌파 시 롱, 최저가 하향 돌파 시 숏. 터틀 시스템의 20일/55일 규칙이 유명.</li>
+<li>52주 신고가 돌파 등 장기 버전도 널리 쓰임.</li>
+</ul>
+<h3>3.2 이동평균 (Moving Average)</h3>
+<ul>
+<li><strong>단일 MA</strong>: 종가가 200일 이동평균 위이면 보유, 아래이면 현금/숏. (Faber의 <em>Tactical Asset Allocation</em>은 10개월 SMA 사용)</li>
+<li><strong>MA 교차</strong>: 단기 MA(예: 50일)가 장기 MA(예: 200일)를 상향 돌파하면 골든크로스 롱, 반대는 데드크로스 숏.</li>
+<li>EMA를 쓰면 반응이 빨라지지만 휩소(whipsaw)가 늘어난다.</li>
+</ul>
+<h3>3.3 시계열 모멘텀 (Time-Series Momentum)</h3>
+<ul>
+<li>과거 N개월(보통 12개월) 수익률의 부호로 방향 결정. 양수면 롱, 음수면 숏.</li>
+<li>여러 룩백(1·3·6·12개월)의 신호를 평균하여 견고성 확보.</li>
+</ul>
+<h3>3.4 기타</h3>
+<ul>
+<li><strong>ADX</strong>: 추세 강도 필터(예: ADX &gt; 25일 때만 진입).</li>
+<li><strong>MACD, 볼린저 밴드 돌파, Keltner 채널</strong> 등 변형.</li>
+<li><strong>변동성 정규화 신호</strong>: 수익률/변동성으로 스케일링하여 자산 간 비교 가능하게 만든 뒤 sign 또는 연속값 사용.</li>
+</ul>
+<div class="warn">어떤 신호를 쓰든 장기적으로 성과 차이는 크지 않다. 성과를 가르는 것은 신호가 아니라 <strong>리스크 관리와 분산, 그리고 규칙을 지키는 실행력</strong>이다.</div>
+
+<h2 id="exit">4. 청산과 손절</h2>
+<ul>
+<li><strong>트레일링 스톱</strong>: 최고가에서 일정 비율 또는 k×ATR 하락 시 청산. 추세추종의 표준. 터틀은 10일 저점 이탈 또는 2N(ATR) 손절 사용.</li>
+<li><strong>신호 반전 청산</strong>: MA 교차가 반대로 되면 청산 (단순, 늦음).</li>
+<li><strong>초기 손절</strong>: 진입 시점에 계좌의 일정 비율(예: 1~2%)을 넘지 않도록 손절가를 미리 정한다.</li>
+<li><strong>시간 청산</strong>: 일정 기간 내 기대 움직임 없으면 청산(선택적).</li>
+</ul>
+<p>이익 목표(take-profit)는 보통 두지 않는다. 큰 추세 몇 개가 전체 수익을 만드는 구조이므로 이익을 일찍 자르면 전략이 망가진다.</p>
+
+<h2 id="sizing">5. 포지션 사이징과 리스크</h2>
+<h3>5.1 변동성 타게팅</h3>
+<pre>포지션 수량 = (계좌자산 × 목표위험%) / (ATR(N) × 계약승수)
+
+예) 자산 1억, 거래당 위험 1%, ATR 2,000원, 승수 1 → 500주</pre>
+<p>변동성이 큰 자산은 적게, 작은 자산은 많이 잡아 <strong>각 포지션의 위험 기여도를 동일하게</strong> 만든다. (Risk Parity와 같은 원리)</p>
+<h3>5.2 핵심 원칙</h3>
+<ul>
+<li>거래당 위험 0.5~2% (터틀은 1단위 = 자산의 1%).</li>
+<li>상관 높은 시장 묶음(예: 금·은, 원유·난방유)에 노출 상한.</li>
+<li>포트폴리오 전체 목표 변동성(예: 연 10~15%)을 정하고 레버리지를 조절.</li>
+<li>피라미딩: 수익 방향으로 갈 때 추가 진입(터틀은 0.5N 간격으로 최대 4단위).</li>
+<li>드로다운 발생 시 사이즈 축소 규칙(예: 자산 10% 감소 시 단위 20% 축소).</li>
+</ul>
+
+<h2 id="universe">6. 투자 유니버스와 분산</h2>
+<ul>
+<li>추세추종은 <strong>많은 시장에 동시에</strong> 적용할수록 좋다. 어디서 추세가 나올지 모르므로 넓게 깔아 놓는다.</li>
+<li>전통 CTA: 50~100개 이상 선물(주가지수, 국채, 금리, 통화, 에너지, 금속, 농산물).</li>
+<li>개인 투자자 대안: 국내/해외 ETF 바스켓(KODEX·TIGER 지수/섹터/채권/원자재 ETF, 미국 상장 ETF), 개별 주식(롱 온리), 암호화폐.</li>
+<li>롱 온리 주식 추세추종은 시장 베타에 종속되므로, 현금 비중 또는 인버스/채권 ETF로 하락 대응을 설계해야 한다.</li>
+</ul>
+
+<h2 id="metrics">7. 성과 지표와 특성</h2>
+<table>
+<tr><th>지표</th><th>추세추종의 전형적 값</th><th>비고</th></tr>
+<tr><td>승률</td><td>30~45%</td><td>낮은 것이 정상</td></tr>
+<tr><td>손익비(평균이익/평균손실)</td><td>2~4</td><td>큰 추세 몇 개가 결정</td></tr>
+<tr><td>연 수익률</td><td>시장·기간 따라 상이(CTA 지수 장기 5~10%대)</td><td>레버리지에 따라 스케일</td></tr>
+<tr><td>샤프비율</td><td>0.5~1.0 (단일), 분산 시 상승</td><td></td></tr>
+<tr><td>최대낙폭(MDD)</td><td>연변동성의 2~3배 흔함</td><td>횡보장에서 길고 지루한 드로다운</td></tr>
+<tr><td>수익 분포</td><td>양의 왜도(positive skew)</td><td>주식 매수보유는 음의 왜도</td></tr>
+<tr><td>주식과 상관</td><td>0 근처, 위기 시 음수</td><td>분산 효과</td></tr>
+</table>
+<div class="warn">가장 힘든 것은 <strong>횡보장</strong>이다. 잦은 진입-손절로 자산이 서서히 깎이며, 이 구간을 견디지 못하면 추세가 왔을 때 자리에 없게 된다.</div>
+
+<h2 id="backtest">8. 백테스트 시 주의점</h2>
+<ul>
+<li><strong>미래참조 편향(Look-ahead)</strong>: 당일 종가로 신호를 만들고 당일 종가로 체결하지 말 것. 다음 봉 시가 체결이 원칙.</li>
+<li><strong>생존편향</strong>: 상장폐지·지수 제외 종목을 포함한 데이터 사용.</li>
+<li><strong>거래비용·슬리피지</strong>: 추세추종은 회전율이 높은 편은 아니지만 수수료·세금(국내 주식 거래세 등)·스프레드를 반드시 반영.</li>
+<li><strong>선물 롤오버</strong>: 연속선물 데이터의 갭 보정(back-adjust) 처리.</li>
+<li><strong>과최적화</strong>: 파라미터 격자에서 주변 값도 좋은지(robustness plateau) 확인. Walk-forward 검증.</li>
+<li><strong>충분한 기간</strong>: 최소 10~20년, 강세·약세·횡보 모두 포함.</li>
+<li><strong>도구</strong>: Python(pandas, vectorbt, backtrader, zipline), 데이터(FinanceDataReader, yfinance, KRX, 증권사 API).</li>
+</ul>
+
+<h2 id="examples">9. 대표 시스템 예시</h2>
+<h3>9.1 터틀 트레이딩 (1983, Richard Dennis)</h3>
+<pre>진입  S1: 20일 고가 돌파 롱 / 20일 저가 돌파 숏 (직전 신호가 수익이었으면 스킵)
+      S2: 55일 돌파 (필터 없음)
+손절  진입가 - 2N (N = 20일 ATR)
+청산  S1: 10일 반대 돌파 / S2: 20일 반대 돌파
+사이즈 1단위 = 자산 1% / N,  최대 4단위 피라미딩(0.5N 간격)</pre>
+<h3>9.2 Faber 10개월 SMA (GTAA)</h3>
+<pre>자산군 5개(미국주식, 해외주식, 채권, 원자재, 리츠) 각 20%
+매월 말: 가격 > 10개월 SMA 이면 보유, 아니면 현금(단기채)</pre>
+<h3>9.3 12개월 시계열 모멘텀</h3>
+<pre>매월 말: 지난 12개월 수익률 > 0 이면 롱, < 0 이면 숏(또는 현금)
+포지션 크기 = 목표변동성(예 40%/자산) / 최근 실현변동성</pre>
+<h3>9.4 듀얼 모멘텀 (Gary Antonacci)</h3>
+<pre>상대 모멘텀: 미국주식 vs 해외주식 중 12개월 수익률 높은 쪽
+절대 모멘텀: 그것이 단기채 수익률보다 낮으면 채권으로</pre>
+
+<h2 id="plan">10. 프로젝트 구상 (초안)</h2>
+<p>아직 사용자의 구체적 요구가 정해지지 않았다. 대화가 진행되면 아래를 채워 나간다.</p>
+<table>
+<tr><th>항목</th><th>결정 사항</th></tr>
+<tr><td>목표</td><td>(미정) 예: 국내외 ETF 대상 월간 추세추종 시스템 구축 및 자동 리밸런싱</td></tr>
+<tr><td>대상 시장</td><td>(미정) 국내 주식/ETF · 미국 ETF · 선물 · 암호화폐</td></tr>
+<tr><td>시간 프레임</td><td>(미정) 일봉 / 주봉 / 월봉</td></tr>
+<tr><td>신호</td><td>(미정) Donchian / MA / TSMOM</td></tr>
+<tr><td>리스크</td><td>(미정) 거래당 위험 %, 목표 변동성</td></tr>
+<tr><td>기술 스택</td><td>(미정) Python + pandas, 데이터 소스, 브로커 API</td></tr>
+<tr><td>산출물</td><td>(미정) 백테스트 리포트, 일일 신호 알림, 자동 주문</td></tr>
+</table>
+<h3>제안 로드맵</h3>
+<ol>
+<li>데이터 파이프라인: 일봉 수집·저장(로컬 DB/Parquet), 품질 검증</li>
+<li>백테스트 엔진: 신호·사이징·비용 모델, 벡터화 구현</li>
+<li>전략 비교: Donchian vs MA vs TSMOM, 룩백 격자 로버스트니스</li>
+<li>포트폴리오화: 다자산 분산, 변동성 타게팅, 상관 제한</li>
+<li>운용 도구: 일일 신호 리포트, 알림(Jarvis Hub 연동), 모의 운용</li>
+<li>실거래: 브로커 API 연동, 주문 검증, 모니터링</li>
+</ol>
+
+<h2 id="refs">11. 참고 자료</h2>
+<ul>
+<li>Michael Covel, <em>Trend Following</em> / <em>The Complete TurtleTrader</em></li>
+<li>Curtis Faith, <em>Way of the Turtle</em> (터틀의 길)</li>
+<li>Andreas Clenow, <em>Following the Trend</em>, <em>Stocks on the Move</em>, <em>Trading Evolved</em> (Python 구현 포함)</li>
+<li>Robert Carver, <em>Systematic Trading</em>, <em>Advanced Futures Trading Strategies</em> (오픈소스 <code>pysystemtrade</code>)</li>
+<li>Moskowitz, Ooi, Pedersen (2012), "Time Series Momentum", <em>Journal of Financial Economics</em></li>
+<li>Hurst, Ooi, Pedersen (2017), "A Century of Evidence on Trend-Following Investing"</li>
+<li>Meb Faber (2007), "A Quantitative Approach to Tactical Asset Allocation"</li>
+<li>Gary Antonacci, <em>Dual Momentum Investing</em></li>
+</ul>
+
+<h2 id="log">작업 로그</h2>
+<div class="log-item"><div class="d">2026-08-29</div>문서 최초 작성. 추세추종의 정의·근거·신호·청산·사이징·분산·성과특성·백테스트 주의점·대표 시스템·참고자료를 정리하고, 프로젝트 구상 표(미정 항목)와 로드맵 초안을 추가.</div>
+
+</body></html>

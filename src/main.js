@@ -11,7 +11,8 @@ const os = require('os')
 const path = require('path')
 
 const HUB_DIR = path.join(os.homedir(), 'JarvisHub')
-const DOCS_DIR = path.join(HUB_DIR, 'docs')
+// 문서는 자비스 프로젝트 저장소에 차곡차곡 쌓인다 (config.docsPath로 변경 가능)
+const DEFAULT_DOCS_DIR = path.join(os.homedir(), 'workflow', 'jarvis', 'docs')
 const MODELS_DIR = path.join(HUB_DIR, 'models')
 const CONFIG_PATH = path.join(HUB_DIR, 'config.json')
 const SESSIONS_PATH = path.join(HUB_DIR, 'sessions.json')
@@ -22,8 +23,12 @@ let claudeProc = null   // 진행 중인 claude 프로세스 (동시 1개)
 let sayProc = null
 
 // ── 스토리지 ──────────────────────────────────────────────────────
+function docsDir() {
+  const cfg = readJson(CONFIG_PATH, {})
+  return cfg.docsPath || DEFAULT_DOCS_DIR
+}
 function ensureDirs() {
-  for (const d of [HUB_DIR, DOCS_DIR, MODELS_DIR]) fs.mkdirSync(d, { recursive: true })
+  for (const d of [HUB_DIR, docsDir(), MODELS_DIR]) fs.mkdirSync(d, { recursive: true })
 }
 function readJson(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return fallback }
@@ -33,6 +38,7 @@ function writeJson(p, v) { fs.writeFileSync(p, JSON.stringify(v, null, 2)) }
 function getConfig() {
   return {
     projectPath: os.homedir(),
+    docsPath: DEFAULT_DOCS_DIR,
     voice: 'Yuna',
     speakReplies: true,
     ...readJson(CONFIG_PATH, {}),
@@ -49,12 +55,12 @@ function slugify(title) {
   const base = title.trim().replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'doc'
   let name = `${base}.html`
   let i = 2
-  while (fs.existsSync(path.join(DOCS_DIR, name))) { name = `${base}-${i}.html`; i += 1 }
+  while (fs.existsSync(path.join(docsDir(), name))) { name = `${base}-${i}.html`; i += 1 }
   return name
 }
 function docTitle(file) {
   try {
-    const head = fs.readFileSync(path.join(DOCS_DIR, file), 'utf8').slice(0, 4096)
+    const head = fs.readFileSync(path.join(docsDir(), file), 'utf8').slice(0, 4096)
     const m = /<title>([^<]*)<\/title>/i.exec(head)
     if (m && m[1].trim()) return m[1].trim()
   } catch { /* noop */ }
@@ -62,10 +68,10 @@ function docTitle(file) {
 }
 function listDocs() {
   ensureDirs()
-  return fs.readdirSync(DOCS_DIR)
+  return fs.readdirSync(docsDir())
     .filter((f) => f.endsWith('.html'))
     .map((f) => {
-      const st = fs.statSync(path.join(DOCS_DIR, f))
+      const st = fs.statSync(path.join(docsDir(), f))
       return { id: f, title: docTitle(f), mtime: st.mtimeMs }
     })
     .sort((a, b) => b.mtime - a.mtime)
@@ -83,7 +89,7 @@ function skeletonHtml(title) {
   .meta{color:#8d877c;font-size:12px}
 </style></head><body>
 <h1>${title}</h1>
-<p class="meta">Jarvis Hub 문서 · 음성/텍스트 피드백으로 보강됩니다</p>
+<p class="meta">Jarvis 문서 · 음성/텍스트 피드백으로 보강됩니다</p>
 <p>(아직 내용이 없습니다 — 아래 입력창에 질문이나 지시를 보내면 채워집니다)</p>
 </body></html>\n`
 }
@@ -100,7 +106,7 @@ function findClaude() {
 
 function systemPrompt(docPath) {
   return [
-    '너는 "Jarvis Hub"라는 로컬 소통창구 앱의 백엔드 에이전트다. 사용자와 음성/텍스트로 대화한다.',
+    '너는 "Jarvis"라는 로컬 소통창구 앱의 백엔드 에이전트다. 사용자와 음성/텍스트로 대화한다.',
     `이 대화의 살아있는 문서: ${docPath}`,
     '규칙:',
     '1) 사용자의 질문/피드백 내용을 반영해 위 HTML 문서를 직접 수정(Write/Edit)해 보강한다.',
@@ -114,7 +120,7 @@ function systemPrompt(docPath) {
 function runClaude(docId, message, sender) {
   if (claudeProc) return Promise.reject(new Error('이전 작업이 아직 실행 중입니다'))
   const cfg = getConfig()
-  const docPath = path.join(DOCS_DIR, docId)
+  const docPath = path.join(docsDir(), docId)
   const sessions = readJson(SESSIONS_PATH, {})
   const prev = sessions[docId]
 
@@ -126,7 +132,7 @@ function runClaude(docId, message, sender) {
   ]
   if (prev) args.push('--resume', prev)
   // 문서 디렉토리 접근 허용 (cwd 밖 파일 수정)
-  args.push('--add-dir', DOCS_DIR)
+  args.push('--add-dir', docsDir())
 
   const emit = (ev) => { if (sender && !sender.isDestroyed()) sender.send('chat:event', ev) }
 
@@ -232,19 +238,19 @@ function registerIpc() {
   ipcMain.handle('docs:create', (_e, title) => {
     ensureDirs()
     const id = slugify(title)
-    fs.writeFileSync(path.join(DOCS_DIR, id), skeletonHtml(title))
+    fs.writeFileSync(path.join(docsDir(), id), skeletonHtml(title))
     return { id }
   })
   ipcMain.handle('docs:delete', (_e, id) => {
-    const p = path.join(DOCS_DIR, path.basename(id))
+    const p = path.join(docsDir(), path.basename(id))
     if (fs.existsSync(p)) fs.unlinkSync(p)
     const s = readJson(SESSIONS_PATH, {})
     delete s[id]
     writeJson(SESSIONS_PATH, s)
     return { ok: true }
   })
-  ipcMain.handle('docs:path', (_e, id) => path.join(DOCS_DIR, path.basename(id)))
-  ipcMain.handle('docs:reveal', (_e, id) => shell.showItemInFolder(path.join(DOCS_DIR, path.basename(id))))
+  ipcMain.handle('docs:path', (_e, id) => path.join(docsDir(), path.basename(id)))
+  ipcMain.handle('docs:reveal', (_e, id) => shell.showItemInFolder(path.join(docsDir(), path.basename(id))))
 
   ipcMain.handle('chat:send', async (e, { docId, text }) => {
     const res = await runClaude(docId, text, e.sender)

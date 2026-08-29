@@ -1,8 +1,8 @@
 {
-  "name": "jarvis-hub",
-  "productName": "Jarvis Hub",
+  "name": "jarvis",
+  "productName": "Jarvis",
   "version": "0.1.0",
-  "description": "음성·텍스트 피드백으로 HTML 문서를 보강하고 프로젝트를 관리하는 로컬 소통창구",
+  "description": "음성·텍스트 피드백으로 문서를 보강하고 프로젝트를 관리하는 로컬 자비스",
   "main": "src/main.js",
   "author": "woody",
   "license": "MIT",
@@ -15,18 +15,32 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "com.woody.jarvishub",
-    "productName": "Jarvis Hub",
-    "directories": { "output": "dist" },
-    "files": ["src/**/*", "package.json"],
+    "appId": "com.woody.jarvis",
+    "productName": "Jarvis",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
       "identity": null,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "음성 피드백 입력에 마이크를 사용합니다."
       }
     },
-    "dmg": { "title": "Jarvis Hub" }
+    "dmg": {
+      "title": "Jarvis"
+    }
   }
 }
