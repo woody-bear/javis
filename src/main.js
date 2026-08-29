@@ -118,6 +118,17 @@ function systemPrompt(docPath) {
   ].join('\n')
 }
 
+/** 도구 입력에서 로그에 보여줄 핵심 한 줄 추출 (Bash 명령·파일 경로 등) */
+function toolDetail(input) {
+  if (!input || typeof input !== 'object') return ''
+  const pick = (v) => String(v ?? '').replace(/\s+/g, ' ').slice(0, 160)
+  for (const k of ['command', 'file_path', 'pattern', 'path', 'query', 'url', 'description']) {
+    if (input[k]) return pick(input[k])
+  }
+  const first = Object.keys(input)[0]
+  return first ? pick(input[first]) : ''
+}
+
 function runClaude(docId, message, sender) {
   if (claudeProc) return Promise.reject(new Error('이전 작업이 아직 실행 중입니다'))
   const cfg = getConfig()
@@ -160,8 +171,25 @@ function runClaude(docId, message, sender) {
         if (ev.type === 'system' && ev.subtype === 'init' && ev.session_id) sessionId = ev.session_id
         if (ev.type === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
           for (const c of ev.message.content) {
-            if (c.type === 'tool_use') emit({ kind: 'tool', name: c.name })
-            if (c.type === 'text' && c.text) emit({ kind: 'thinking', text: c.text.slice(0, 200) })
+            if (c.type === 'tool_use') emit({ kind: 'tool', name: c.name, detail: toolDetail(c.input) })
+            if (c.type === 'text' && c.text) emit({ kind: 'text', text: c.text.slice(0, 600) })
+          }
+        }
+        // 도구 실행 결과 (성공/실패 + 미리보기)
+        if (ev.type === 'user' && ev.message && Array.isArray(ev.message.content)) {
+          for (const c of ev.message.content) {
+            if (c.type === 'tool_result') {
+              let preview = ''
+              if (typeof c.content === 'string') preview = c.content
+              else if (Array.isArray(c.content)) {
+                preview = c.content.filter((x) => x.type === 'text').map((x) => x.text).join(' ')
+              }
+              emit({
+                kind: 'tool_result',
+                error: c.is_error === true,
+                text: String(preview || '').replace(/\s+/g, ' ').slice(0, 160),
+              })
+            }
           }
         }
         if (ev.type === 'result') {

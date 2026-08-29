@@ -84,6 +84,8 @@ async function sendMessage(text) {
   if (!text || busy) return
   if (!currentDoc) { alert('먼저 문서를 만들거나 선택하세요 (＋ 버튼)'); return }
   setBusy(true, 'Claude 작업 중… (ESC로 중단)')
+  procReset()
+  procAppend('', `<span class="pl-tool">▶</span> ${esc(text)}`)
   const reply = $('lastReply')
   reply.style.color = ''
   reply.textContent = `▶ 요청: ${text}`   // 인식/입력된 내용을 먼저 텍스트로 확인
@@ -116,9 +118,44 @@ function autoGrow() {
 }
 $('input').addEventListener('input', autoGrow)
 
+// ── 작업 과정 로그 ────────────────────────────────────────────────
+function procAppend(cls, html) {
+  const log = $('procLog')
+  const el = document.createElement('div')
+  el.className = `pl-line ${cls}`
+  el.innerHTML = html
+  log.appendChild(el)
+  log.scrollTop = log.scrollHeight
+  // 라인 수 제한 (렌더 보호)
+  while (log.childElementCount > 400) log.removeChild(log.firstChild)
+}
+function procReset() {
+  $('procLog').innerHTML = ''
+  $('procWrap').hidden = false
+  $('procLog').classList.remove('collapsed')
+  $('procToggle').textContent = '▾'
+}
+function esc(t) {
+  const d = document.createElement('span'); d.textContent = t ?? ''; return d.innerHTML
+}
+$('procToggle').addEventListener('click', () => {
+  const log = $('procLog')
+  const collapsed = log.classList.toggle('collapsed')
+  $('procToggle').textContent = collapsed ? '▸' : '▾'
+})
+
 window.jarvis.chat.onEvent((ev) => {
-  if (ev.kind === 'tool') $('activityText').textContent = `도구 실행: ${ev.name}`
-  if (ev.kind === 'thinking') $('activityText').textContent = ev.text.slice(0, 90)
+  if (ev.kind === 'tool') {
+    $('activityText').textContent = `도구 실행: ${ev.name}`
+    procAppend('', `<span class="pl-tool">⚙ ${esc(ev.name)}</span> ${esc(ev.detail || '')}`)
+  }
+  if (ev.kind === 'text' || ev.kind === 'thinking') {
+    $('activityText').textContent = (ev.text || '').slice(0, 90)
+    procAppend('pl-text', `💬 ${esc(ev.text)}`)
+  }
+  if (ev.kind === 'tool_result') {
+    procAppend(ev.error ? 'pl-err' : 'pl-result', `${ev.error ? '✗' : '↳'} ${esc(ev.text || (ev.error ? '오류' : '완료'))}`)
+  }
 })
 
 // ── 음성 녹음 (무음 자동 종료) → 16k WAV → STT ────────────────────

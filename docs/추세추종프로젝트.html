@@ -32,7 +32,7 @@
 <li><a href="#metrics">성과 지표와 특성</a></li>
 <li><a href="#backtest">백테스트 시 주의점</a></li>
 <li><a href="#examples">대표 시스템 예시</a></li>
-<li><a href="#plan">프로젝트 구상 (초안)</a></li>
+<li><a href="#plan">현재 프로그램: UBB Pro Signal System</a></li>
 <li><a href="#refs">참고 자료</a></li>
 <li><a href="#log">작업 로그</a></li>
 </ol></div>
@@ -154,26 +154,77 @@
 <pre>상대 모멘텀: 미국주식 vs 해외주식 중 12개월 수익률 높은 쪽
 절대 모멘텀: 그것이 단기채 수익률보다 낮으면 채권으로</pre>
 
-<h2 id="plan">10. 프로젝트 구상 (초안)</h2>
-<p>아직 사용자의 구체적 요구가 정해지지 않았다. 대화가 진행되면 아래를 채워 나간다.</p>
+<h2 id="plan">10. 현재 프로그램: UBB Pro Signal System</h2>
+<p class="meta">위치: <code>~/workflow/trading_view</code> · 운영: https://www.asst.kr (Mac Mini + Cloudflare Tunnel) · 2026-08-29 코드 기준</p>
+<p>사용자가 직접 개발·운영 중인 시스템. TradingView 지표를 Python으로 재현해 한국/미국/암호화폐 종목을 스캔하고 텔레그램으로 알리는 <strong>신호·모니터링 플랫폼</strong>이며, 추세추종 요소(EMA 추세 필터, 200일선 모멘텀 스캔, ATR 기반 손절·사이징, 추세선 분석)가 단계적으로 내재화되어 있다.</p>
+
+<h3>10.1 기술 스택</h3>
 <table>
-<tr><th>항목</th><th>결정 사항</th></tr>
-<tr><td>목표</td><td>(미정) 예: 국내외 ETF 대상 월간 추세추종 시스템 구축 및 자동 리밸런싱</td></tr>
-<tr><td>대상 시장</td><td>(미정) 국내 주식/ETF · 미국 ETF · 선물 · 암호화폐</td></tr>
-<tr><td>시간 프레임</td><td>(미정) 일봉 / 주봉 / 월봉</td></tr>
-<tr><td>신호</td><td>(미정) Donchian / MA / TSMOM</td></tr>
-<tr><td>리스크</td><td>(미정) 거래당 위험 %, 목표 변동성</td></tr>
-<tr><td>기술 스택</td><td>(미정) Python + pandas, 데이터 소스, 브로커 API</td></tr>
-<tr><td>산출물</td><td>(미정) 백테스트 리포트, 일일 신호 알림, 자동 주문</td></tr>
+<tr><th>계층</th><th>기술</th></tr>
+<tr><td>백엔드</td><td>Python 3.12 · FastAPI · SQLAlchemy 2.0 async · APScheduler</td></tr>
+<tr><td>프론트</td><td>React 18 · TypeScript · Vite · Tailwind · lightweight-charts v5</td></tr>
+<tr><td>데이터</td><td>SQLite WAL(<code>daily_ohlcv</code> 일봉 적재 테이블 중심) · yfinance · pykrx · ccxt · 한국투자증권 REST/WS · 업비트 WS · DART · KRX</td></tr>
+<tr><td>브로커</td><td>한국투자증권(시세·계좌), 토스증권(보유·조건주문 조회, 자동매수 실험), 키움</td></tr>
+<tr><td>알림</td><td>텔레그램 봇 (BUY/SELL 알림)</td></tr>
+<tr><td>개발 방식</td><td>CLAUDE.md 하네스 규칙 + <code>.claude/rules/</code> 보호된 비즈니스 규칙(BUY/SELL 라벨·스캔 종목은 승인 없이 변경 금지) + speckit 스펙 번호(024, 033, 054~073…)</td></tr>
 </table>
-<h3>제안 로드맵</h3>
+
+<h3>10.2 신호 체계 — 두 개의 엔진</h3>
+<table>
+<tr><th>엔진</th><th>위치</th><th>역할</th></tr>
+<tr><td>Pine Script 시뮬레이션</td><td><code>routes/charts.py:_simulate_signals</code></td><td>차트 BUY/SELL 마커, 전체 스캔 chart_buy 판정 (RSI 40 고정, 쿨다운 5봉)</td></tr>
+<tr><td>신호 엔진 프리셋</td><td><code>indicators/signal_engine.py</code></td><td>관심종목 BUY/SELL/NEUTRAL 상태, 30분 주기, 민감도 strict/normal/sensitive</td></tr>
+</table>
+<pre>BUY  : (저가 ≤ BB하단 또는 하단 재돌파) AND RSI &lt; 임계(30/35/40) AND MACD 모멘텀 상승
+SQZ BUY : 스퀴즈 해제(전봉 SQ&gt;0 → 현봉 0) AND 모멘텀 &gt; 0 AND 모멘텀 상승
+SELL : (종가 ≥ BB상단 또는 상단 이탈) AND RSI &gt; 60
+지표 : BB(20,2) · RSI(14) · MACD(12,26,9) · EMA 5/10/20/50/60/120/200 · Squeeze Pro · 거래량 5일평균×1.5</pre>
+<div class="note">핵심 BUY 신호는 <strong>평균회귀(볼린저 하단 + 과매도 RSI)</strong> 성격이다. 여기에 EMA 추세 필터(역배열 스킵, 눌림목 = EMA20&gt;60&gt;120 상승추세 속 EMA5 단기 하락)를 얹어 <strong>"상승추세 안에서의 눌림목 매수"</strong> 구조로 만들었다. 순수 추세추종(돌파 매수)과는 진입 철학이 다르다는 점을 인식할 것.</div>
+
+<h3>10.3 추세추종 관련 구현 요소 (이론 ↔ 코드 매핑)</h3>
+<table>
+<tr><th>추세추종 개념</th><th>현재 구현</th><th>소스</th></tr>
+<tr><td>추세 판정(MA 정배열)</td><td>EMA20&gt;50&gt;200 + 가격&gt;EMA20 + EMA20 기울기&gt;0 → BULL / 역배열 → BEAR</td><td><code>services/scan_conditions.py:check_trend</code></td></tr>
+<tr><td>장기 추세 필터 + 돌파</td><td><strong>상승모멘텀 스캔</strong>: 200일선 위 & 200일선 상승, 최근 3일 내 거래량 20일평균×1.5 돌파 양봉, 6개월 RS 상위 50%(코스피 대비)</td><td><code>services/momentum_scan_service.py</code></td></tr>
+<tr><td>역배열 회피</td><td>EMA5&lt;10&lt;20&lt;60&lt;120 전체 역배열이면 스캔 스킵</td><td><code>full_market_scanner.py:_is_dead_cross</code></td></tr>
+<tr><td>ATR 기반 손절 (터틀 N)</td><td>N = 20일 ATR(Wilder). 1R = 3N. 초기손절 = 진입−3N, 청산선 = 전일종가−2N(트레일링), 4R 목표 = 진입+12N</td><td><code>frontend/src/lib/stopPlan.ts</code>, <code>StopPlanPanel.tsx</code></td></tr>
+<tr><td>변동성 기반 포지션 사이징</td><td>수량 = floor(총평가액 × 리스크% ÷ 3N) — KR만. 토스 보유수량×평단으로 리스크금액 표시</td><td><code>stopPlan.ts</code></td></tr>
+<tr><td>추세 분류</td><td>최근 120봉 고점·저점 피크 → 선형회귀 → uptrend/downtrend/sideways/triangle</td><td><code>services/trend_analysis.py</code> (024)</td></tr>
+<tr><td>추세선 채널</td><td>1/3/6/12/36개월 스윙 고저점 기반 상승·하락·평행 추세선, 단기·장기 가이드 + 최신 피벗 표시</td><td><code>services/trendline_channels.py</code> (033)</td></tr>
+<tr><td>횡보 식별(추세 배제)</td><td><strong>박스권 스캔</strong>: 60일 박스폭 ≤ 28%, 지지·저항 각 2회 이상 터치, 추세 배제</td><td><code>services/box_scan_service.py</code></td></tr>
+<tr><td>분할 진입(피라미딩 유사)</td><td>가상투자: 매집기간 주중일수로 나눠 종가 분할매수 시뮬, 수익률 추적·청산 회고</td><td><code>services/virtual_trade_service.py</code></td></tr>
+<tr><td>매매 규율</td><td>매매 일지(장전/오전장/종가/내일 4단계), 사례 기록(재매수·분할매매·통화별 승률), 투자격언</td><td><code>routes/trade_journal.py</code>, <code>trade_entries.py</code></td></tr>
+</table>
+
+<h3>10.4 스캔 페이지 구성</h3>
+<ul>
+<li><strong>/scan</strong>: 전체 시장 스캔(코스피·코스닥·미국·코인) — 추천/MAX SQ 폭발 임박/차트 BUY</li>
+<li><strong>/scan2~5</strong>: 눌림목·대형주·급등주(071)·소형주 유니버스 등 카테고리별 스캔(daily_ohlcv DB만 사용, 외부 API 0)</li>
+<li><strong>/scan6</strong>: '관심' 라벨 종목 + 신호일 3·5·7·10 필터</li>
+<li><strong>상승모멘텀 / 박스권 스캔</strong>: 평일 16:00 적재 체이닝 후 워밍 캐시(TTL 7일)</li>
+<li><strong>종목상세</strong>: UBB Pro 차트, 6개 게이지, 추세선 섹션, 손실제한 패널(N·1R·비상손절 % 표시), 토스 조건주문 매매선, 뉴스(한투+DART), 실적</li>
+</ul>
+
+<h3>10.5 갭 분석 — 추세추종 관점에서 빠진 것</h3>
+<table>
+<tr><th>항목</th><th>현재</th><th>보강 방향</th></tr>
+<tr><td>백테스트</td><td>없음 — 신호는 실시간 판정만, 과거 성과 검증 미구현</td><td>daily_ohlcv 기반 벡터화 백테스터(진입=다음날 시가, 비용·세금 반영). 승률/손익비/MDD/왜도 리포트</td></tr>
+<tr><td>돌파 진입 신호</td><td>momentum_scan의 거래량 돌파만 존재, 가격 채널(Donchian) 돌파 없음</td><td>20/55일 Donchian 돌파 + 200일선 필터를 별도 스캔 카테고리로 추가</td></tr>
+<tr><td>청산 자동화</td><td>손절선·청산선은 화면 표시용. 실제 청산 신호·알림은 SELL(BB상단+RSI) 기준</td><td>−2N 트레일링 스톱 이탈 시 텔레그램 알림(sell_signal_alert 확장)</td></tr>
+<tr><td>포트폴리오 리스크</td><td>종목별 사이징만, 전체 노출·상관 제한 없음</td><td>총 위험 예산(예: 자산의 6~8%), 섹터·시장별 노출 상한, 목표 변동성</td></tr>
+<tr><td>양방향</td><td>롱 온리(현물)</td><td>하락장 대응: 현금 비중 규칙 또는 인버스 ETF·시장 바로미터(market_barometer) 연동</td></tr>
+<tr><td>시장 레짐</td><td>market_barometer 존재하나 신호와 미연결</td><td>지수(코스피/S&amp;P)가 200일선 아래면 신규 매수 차단</td></tr>
+<tr><td>실행</td><td>토스 자동매수 실험 단계, 한투 계좌 조회</td><td>주문 검증·모의운용 후 반자동(승인 버튼) 실행</td></tr>
+</table>
+
+<h3>10.6 제안 로드맵 (현재 시스템 기준)</h3>
 <ol>
-<li>데이터 파이프라인: 일봉 수집·저장(로컬 DB/Parquet), 품질 검증</li>
-<li>백테스트 엔진: 신호·사이징·비용 모델, 벡터화 구현</li>
-<li>전략 비교: Donchian vs MA vs TSMOM, 룩백 격자 로버스트니스</li>
-<li>포트폴리오화: 다자산 분산, 변동성 타게팅, 상관 제한</li>
-<li>운용 도구: 일일 신호 리포트, 알림(Jarvis Hub 연동), 모의 운용</li>
-<li>실거래: 브로커 API 연동, 주문 검증, 모니터링</li>
+<li><strong>백테스터</strong> — daily_ohlcv를 입력으로 기존 눌림목 BUY / 상승모멘텀 / Donchian 돌파 세 전략을 동일 비용모델로 비교</li>
+<li><strong>Donchian 돌파 스캔</strong> — 200일선 위 + 20일/55일 신고가 돌파 카테고리(momentum_scan과 동일 캐시 패턴)</li>
+<li><strong>트레일링 스톱 알림</strong> — 보유종목(토스/한투) 대상 −2N 청산선 이탈 알림</li>
+<li><strong>레짐 필터</strong> — market_barometer ↔ 스캔 연결, 약세장 신규진입 차단</li>
+<li><strong>포트폴리오 리스크 대시보드</strong> — 보유종목 R 합산, 시장·섹터 노출</li>
+<li><strong>반자동 주문</strong> — 신호 → 승인 → 브로커 주문, 매매일지 자동 기록</li>
 </ol>
 
 <h2 id="refs">11. 참고 자료</h2>
@@ -189,6 +240,7 @@
 </ul>
 
 <h2 id="log">작업 로그</h2>
+<div class="log-item"><div class="d">2026-08-29</div>사용자의 실제 프로그램(~/workflow/trading_view, UBB Pro Signal System)을 분석해 10장을 전면 교체. 기술 스택, 두 신호 엔진의 조건, 추세추종 개념↔코드 매핑(EMA 추세 필터·200일선 모멘텀 스캔·ATR 3N 손절/사이징·추세선·박스권·가상투자), 스캔 페이지 구성, 갭 분석(백테스트·Donchian 돌파·트레일링 스톱 알림·포트폴리오 리스크·레짐 필터) 및 로드맵을 추가.</div>
 <div class="log-item"><div class="d">2026-08-29</div>문서 최초 작성. 추세추종의 정의·근거·신호·청산·사이징·분산·성과특성·백테스트 주의점·대표 시스템·참고자료를 정리하고, 프로젝트 구상 표(미정 항목)와 로드맵 초안을 추가.</div>
 
 </body></html>
