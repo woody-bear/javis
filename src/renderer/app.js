@@ -686,6 +686,7 @@ function encodeWav16k(float32Chunks, srcRate) {
 async function loadConfig() {
   const cfg = await window.jarvis.config.get()
   $('projPath').textContent = cfg.projectPath
+  $('selModel').value = cfg.model || ''
   $('chkWake').checked = !!cfg.wakeMode
   if (cfg.wakeMode) startWake().catch(() => { $('chkWake').checked = false })
   $('chkGesture').checked = !!cfg.gestureMode
@@ -1141,6 +1142,9 @@ async function stopGesture() {
   $('gestureStatus').textContent = ''
 }
 
+$('selModel').addEventListener('change', (e) => {
+  window.jarvis.config.set({ model: e.target.value })
+})
 $('chkGesture').addEventListener('change', async (e) => {
   const on = e.target.checked
   window.jarvis.config.set({ gestureMode: on })

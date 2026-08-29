@@ -43,6 +43,7 @@ function getConfig() {
     speakReplies: true,
     wakeMode: false,
     gestureMode: false,
+    model: '',   // '' = Claude Code 기본 설정 따름 (전역 — 모든 문서·프로젝트 동일 적용)
     ...readJson(CONFIG_PATH, {}),
   }
 }
@@ -325,6 +326,7 @@ function runClaude(docId, message, sender) {
     '--append-system-prompt', systemPrompt(docPath, parentPath),
     '--dangerously-skip-permissions',
   ]
+  if (cfg.model) args.push('--model', cfg.model)
   if (prev) args.push('--resume', prev)
   // 문서 디렉토리 접근 허용 (중앙 + 이 문서의 저장 폴더)
   args.push('--add-dir', docsDir())

@@ -20,6 +20,15 @@
           <span class="proj-label">PROJECT</span>
           <span id="projPath">—</span>
         </div>
+        <label class="spk-row" style="justify-content:space-between">모델
+          <select id="selModel" title="Claude 모델 — 전체 문서·프로젝트에 동일 적용">
+            <option value="">기본 (Claude Code 설정)</option>
+            <option value="fable">Fable (최상위)</option>
+            <option value="opus">Opus</option>
+            <option value="sonnet">Sonnet</option>
+            <option value="haiku">Haiku (빠름·저렴)</option>
+          </select>
+        </label>
         <label class="spk-row"><input type="checkbox" id="chkWake"> 🎙 "자비스" 호출 대기</label>
         <label class="spk-row"><input type="checkbox" id="chkGesture"> ✊ 주먹 제스처 대기 (카메라)</label>
         <div id="gestureStatus" class="stt-status"></div>
