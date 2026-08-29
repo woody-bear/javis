@@ -5,6 +5,7 @@ let currentDoc = null
 let recording = false
 let busy = false
 let docOrder = []   // 사이드바 렌더 순서 (제스처 위/아래 이동용)
+let docFirstChild = {}   // parentId → 첫 번째 갈래 id (검지 오른쪽 제스처용)
 
 // ── 문서 목록 ─────────────────────────────────────────────────────
 let dragState = null   // { id, group }
@@ -31,6 +32,8 @@ async function refreshDocs(selectId) {
     }
   }
   for (const [k, v] of children) children.set(k, sortGroup(v, k))
+  docFirstChild = {}
+  for (const [k, v] of children) if (v.length) docFirstChild[k] = v[0].id
   const siblingIds = (groupKey) =>
     (groupKey ? (children.get(groupKey) || []) : roots).map((x) => x.id)
   docOrder = []
@@ -585,7 +588,14 @@ function navigateDoc(delta) {
   selectDoc(docOrder[ni])
 }
 
-/** 손 랜드마크로 '검지만 편 손' 방향 판정 → 'up' | 'down' | null */
+function navigateInto() {
+  const child = docFirstChild[currentDoc]
+  if (!child) return   // 갈래 없음
+  tick()
+  selectDoc(child)
+}
+
+/** 손 랜드마크로 '검지만 편 손' 방향 판정 → 'up' | 'down' | 'right' | 'left' | null */
 function pointingDir(lm) {
   const w = lm[0]
   const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
@@ -594,11 +604,15 @@ function pointingDir(lm) {
   // 중지·약지·소지는 접혀 있어야 (주먹/보자기와 구분)
   const folded = (tip, pip) => d(tip, w) < d(pip, w)
   if (!folded(lm[12], lm[10]) || !folded(lm[16], lm[14]) || !folded(lm[20], lm[18])) return null
-  // 수직 방향성: 검지 MCP→끝 벡터가 충분히 세로여야
+  // 방향 판정: MCP→검지끝 벡터의 지배축 (y 아래 증가, x는 카메라 원본 기준 — 사용자 오른쪽 = 이미지 왼쪽)
   const dy = lm[8].y - lm[5].y
-  const dx = Math.abs(lm[8].x - lm[5].x)
-  if (Math.abs(dy) < 0.12 || dx > Math.abs(dy)) return null
-  return dy < 0 ? 'up' : 'down'   // 화면 좌표 y는 아래로 증가
+  const dx = lm[8].x - lm[5].x
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    if (Math.abs(dy) < 0.12) return null
+    return dy < 0 ? 'up' : 'down'
+  }
+  if (Math.abs(dx) < 0.14) return null
+  return dx < 0 ? 'right' : 'left'   // 미러 매핑: 사용자가 자기 오른쪽을 가리키면 'right'
 }
 
 const NAV_COOLDOWN_MS = 750
@@ -652,13 +666,16 @@ async function startGesture() {
       if (dir && navHits >= 2 && Date.now() - navLastFire > NAV_COOLDOWN_MS) {
         navLastFire = Date.now()
         navHits = 0
-        navigateDoc(dir === 'up' ? -1 : 1)
+        if (dir === 'up') navigateDoc(-1)
+        else if (dir === 'down') navigateDoc(1)
+        else if (dir === 'right') navigateInto()   // 세부문서(첫 갈래)로 진입
+        // 'left'는 예약 (현재 미사용)
       }
     }
   }, GESTURE_FPS_MS)
 
   gestureOn = true
-  $('gestureStatus').textContent = '대기 중 — ✊ 주먹: 듣기 시작 · ☝ 검지 위/아래: 문서 이동'
+  $('gestureStatus').textContent = '대기 중 — ✊ 듣기 · ☝ 위/아래 이동 · 👉 오른쪽: 세부문서 진입'
 }
 
 async function stopGesture() {
