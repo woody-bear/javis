@@ -83,18 +83,17 @@ function setBusy(v, label) {
 async function sendMessage(text) {
   if (!text || busy) return
   if (!currentDoc) { alert('먼저 문서를 만들거나 선택하세요 (＋ 버튼)'); return }
-  window.jarvis.tts.stop()
-  setBusy(true, 'Claude 작업 중…')
-  $('lastReply').hidden = true
+  setBusy(true, 'Claude 작업 중… (ESC로 중단)')
+  const reply = $('lastReply')
+  reply.style.color = ''
+  reply.textContent = `▶ 요청: ${text}`   // 인식/입력된 내용을 먼저 텍스트로 확인
+  reply.hidden = false
   const res = await window.jarvis.chat.send(currentDoc, text)
   setBusy(false)
   reloadFrame()
   refreshDocs()
-  const reply = $('lastReply')
-  reply.textContent = res.text || (res.ok ? '완료' : '실패')
-  reply.hidden = false
+  reply.textContent = `▶ 요청: ${text}\n${res.text || (res.ok ? '완료' : '실패')}`
   if (!res.ok) reply.style.color = 'var(--rec)'
-  else reply.style.color = ''
 }
 
 $('btnSend').addEventListener('click', () => {
@@ -134,7 +133,6 @@ let chunks = []
 let stopTimer = null
 
 async function startRecording() {
-  window.jarvis.tts.stop()  // 낭독 중이면 끊고 듣기 (에코 방지)
   recStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
   audioCtx = new AudioContext()
   const src = audioCtx.createMediaStreamSource(recStream)
@@ -184,11 +182,8 @@ async function stopRecording(transcribeIt) {
   const res = await window.jarvis.stt.transcribe(wav)
   setBusy(false)
   if (res.ok && res.text) {
-    $('input').value = res.text
-    autoGrow()
+    // 인식된 질문을 '요청:' 에코로 표시한 뒤 바로 실행
     sendMessage(res.text)
-    $('input').value = ''
-    autoGrow()
   } else if (!res.ok) {
     const reply = $('lastReply')
     reply.textContent = res.text
@@ -240,7 +235,6 @@ function encodeWav16k(float32Chunks, srcRate) {
 async function loadConfig() {
   const cfg = await window.jarvis.config.get()
   $('projPath').textContent = cfg.projectPath
-  $('chkSpeak').checked = !!cfg.speakReplies
   const stt = await window.jarvis.stt.ready()
   const el = $('sttStatus')
   if (stt.bin && stt.model) { el.textContent = 'STT 준비됨 (whisper 로컬)'; el.classList.remove('err') }
@@ -253,7 +247,17 @@ $('projRow').addEventListener('click', async () => {
   const cfg = await window.jarvis.config.pickProject()
   $('projPath').textContent = cfg.projectPath
 })
-$('chkSpeak').addEventListener('change', (e) => window.jarvis.config.set({ speakReplies: e.target.checked }))
+
+// ── ESC — 녹음 취소 또는 실행 중 작업 중단 ────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return
+  if (!$('modal').hidden) { $('modal').hidden = true; return }
+  if (recording) { stopRecording(false); return }   // 녹음 취소 (전송 안 함)
+  if (busy) {
+    window.jarvis.chat.abort()
+    $('activityText').textContent = '중단하는 중…'
+  }
+})
 
 // init
 refreshDocs()

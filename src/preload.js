@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   chat: {
     send: (docId, text) => ipcRenderer.invoke('chat:send', { docId, text }),
     busy: () => ipcRenderer.invoke('chat:busy'),
+    abort: () => ipcRenderer.invoke('chat:abort'),
     onEvent: (cb) => ipcRenderer.on('chat:event', (_e, ev) => cb(ev)),
   },
   stt: {

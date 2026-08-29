@@ -113,7 +113,8 @@ function systemPrompt(docPath) {
     '   문서는 self-contained 한국어 HTML(다크 배경 유지)로, 대화가 쌓일수록 좋은 참조 문서가 되게 다듬어라.',
     '2) 소스코드·프로젝트 작업을 요청하면 현재 작업 디렉토리의 프로젝트에서 실제로 수행하고,',
     '   수행 결과 요약을 문서 하단 "작업 로그" 섹션(없으면 생성, 최신이 위)에 날짜와 함께 추가한다.',
-    '3) 최종 응답 텍스트는 음성으로 낭독된다 — 2문장 이내, 한국어로 간결하게. 코드/경로 나열 금지.',
+    '3) 최종 응답 형식(텍스트로 표시됨): 첫 줄에 "이해한 요청: …" 으로 네가 이해한 바를 한 줄 요약하고,',
+    '   다음 줄부터 수행한 내용을 3줄 이내로 정리한다. 한국어.',
   ].join('\n')
 }
 
@@ -171,13 +172,17 @@ function runClaude(docId, message, sender) {
     })
     proc.stderr.on('data', (d) => { stderr += d.toString() })
     proc.on('close', (code) => {
+      const wasAborted = proc.aborted === true
       claudeProc = null
       if (sessionId) {
         const s = readJson(SESSIONS_PATH, {})
         s[docId] = sessionId
         writeJson(SESSIONS_PATH, s)
       }
-      if (code === 0) {
+      if (wasAborted) {
+        // 사용자 ESC 중단 — 세션은 보존 (다음 피드백에서 이어짐)
+        resolve({ ok: false, aborted: true, text: '⏹ 중단했습니다' })
+      } else if (code === 0) {
         resolve({ ok: true, text: resultText })
       } else {
         // resume 실패(만료 세션 등) → 세션 초기화 안내
@@ -253,11 +258,18 @@ function registerIpc() {
   ipcMain.handle('docs:reveal', (_e, id) => shell.showItemInFolder(path.join(docsDir(), path.basename(id))))
 
   ipcMain.handle('chat:send', async (e, { docId, text }) => {
-    const res = await runClaude(docId, text, e.sender)
-    if (res.ok && res.text) speak(res.text)
-    return res
+    return runClaude(docId, text, e.sender)
   })
   ipcMain.handle('chat:busy', () => !!claudeProc)
+  ipcMain.handle('chat:abort', () => {
+    if (!claudeProc) return false
+    try {
+      claudeProc.aborted = true
+      claudeProc.kill('SIGTERM')
+      setTimeout(() => { try { claudeProc && claudeProc.kill('SIGKILL') } catch { /* noop */ } }, 3000)
+    } catch { /* noop */ }
+    return true
+  })
 
   ipcMain.handle('stt:transcribe', async (_e, wavArrayBuffer) => transcribe(Buffer.from(wavArrayBuffer)))
   ipcMain.handle('stt:ready', () => {
