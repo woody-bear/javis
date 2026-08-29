@@ -1003,6 +1003,8 @@ function pointingDir(lm) {
 
 const NAV_COOLDOWN_MS = 750
 let okHits = 0
+let comboHits = 0
+let comboLastFire = 0
 let palmHits = 0
 let navHits = 0
 let navLastDir = null
@@ -1043,7 +1045,7 @@ async function startGesture() {
     gestureRecognizer = await vision.GestureRecognizer.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: './vendor/models/gesture_recognizer.task' },
       runningMode: 'VIDEO',
-      numHands: 1,
+      numHands: 2,   // 두 손 조합 제스처 지원
     })
   }
 
@@ -1055,11 +1057,51 @@ async function startGesture() {
     if (video.readyState < 2) return
     let result
     try { result = gestureRecognizer.recognizeForVideo(video, performance.now()) } catch { return }
+    // ── 두 손 조합 제스처 — 왼손✊+오른손🖐: 전체화면 토글 · ✊✊: 전체화면 종료 ──
+    const numHands = result && result.gestures ? result.gestures.length : 0
+    if (numHands >= 2 && !recording) {
+      const handed = result.handedness || result.handednesses || []
+      const hands = {}
+      for (let i = 0; i < numHands; i += 1) {
+        const top = result.gestures[i] && result.gestures[i][0]
+        const label = handed[i] && handed[i][0] ? handed[i][0].categoryName : ''
+        // 비미러 원본 프레임: 라벨 'Left' = 사용자의 오른손
+        const userHand = label === 'Left' ? 'right' : 'left'
+        if (top && top.score >= GESTURE_SCORE) hands[userHand] = top.categoryName
+      }
+      const combo = hands.left && hands.right ? `${hands.left}+${hands.right}` : null
+      if (combo === 'Closed_Fist+Open_Palm') {          // 왼손 ✊ + 오른손 🖐
+        comboHits += 1
+        if (comboHits >= GESTURE_HITS && Date.now() - comboLastFire > 2000) {
+          comboLastFire = Date.now()
+          comboHits = 0
+          document.body.classList.toggle('doc-full')
+          showGestureToast('✊🖐', document.body.classList.contains('doc-full') ? '문서 전체 화면' : '전체 화면 종료')
+        }
+      } else if (combo === 'Closed_Fist+Closed_Fist') { // ✊✊ — 전체 화면 종료
+        comboHits += 1
+        if (comboHits >= GESTURE_HITS && Date.now() - comboLastFire > 2000) {
+          comboLastFire = Date.now()
+          comboHits = 0
+          if (document.body.classList.contains('doc-full')) {
+            document.body.classList.remove('doc-full')
+            showGestureToast('✊✊', '전체 화면 종료')
+          }
+        }
+      } else {
+        comboHits = 0
+      }
+      // 두 손이 보이는 동안 한 손 제스처는 대기 (조합 도중 오발동 방지)
+      gestureHits = 0; palmHits = 0; navHits = 0; okHits = 0
+      return
+    }
+    comboHits = 0
+
     const seen = !!(result && result.landmarks && result.landmarks.length)
     if (seen !== handSeen) {
       handSeen = seen
       $('gestureStatus').textContent = seen
-        ? '✋ 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 맵(맵에서 ✊ 첫 프로젝트)'
+        ? '✋ 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 맵 · 왼✊+오🖐 전체화면(✊✊ 종료)'
         : '대기 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 프로젝트 맵'
     }
     const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
