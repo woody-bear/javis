@@ -99,6 +99,7 @@ async function refreshDocs(selectId) {
     for (const c of (children.get(d.id) || [])) renderItem(c, depth + 1)
   }
   const roots = sortGroup(docs.filter((x) => !x.parentId), '')
+  mapRoots = roots.map((r) => r.id)
   for (const d of roots) renderItem(d, 0)
   if (selectId) selectDoc(selectId)
 }
@@ -1016,7 +1017,7 @@ async function startGesture() {
     if (seen !== handSeen) {
       handSeen = seen
       $('gestureStatus').textContent = seen
-        ? '✋ 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 맵'
+        ? '✋ 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 맵(맵에서 ✊ 첫 프로젝트)'
         : '대기 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 프로젝트 맵'
     }
     const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
@@ -1042,6 +1043,18 @@ async function startGesture() {
       return
     }
     okHits = 0
+
+    // ── 프로젝트 맵 열림 + ✊ — 첫 번째 프로젝트(루트 문서)로 이동하고 맵 닫기 ──
+    if (!$('mapView').hidden && isFist) {
+      gestureHits += 1
+      navHits = 0
+      if (gestureHits >= GESTURE_HITS && Date.now() - gestureLastFire > GESTURE_COOLDOWN_MS) {
+        gestureLastFire = Date.now()
+        gestureHits = 0
+        mapSelectFirst()
+      }
+      return
+    }
 
     // ── Claude 작업 중: 문서 탐색(☝👇👉)은 허용, 음성 시작(✊)은 안내만 ──
     if (busy) {
@@ -1212,6 +1225,7 @@ async function renderMap() {
   }
   for (const [k, v] of children) children.set(k, sortGroup(v, k))
   const roots = sortGroup(docs.filter((x) => !x.parentId), '')
+  mapRoots = roots.map((r) => r.id)
 
   // 레이아웃: 깊이 = x, 리프 순서 = y (부모는 자식들 세로 중앙)
   const pos = new Map()
@@ -1273,6 +1287,16 @@ async function renderMap() {
     `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" font-family="Apple SD Gothic Neo, sans-serif">${linksSvg}${nodesSvg}</svg>`
 }
 
+let mapRoots = []   // 맵에 표시된 프로젝트(루트 문서) id — 정렬 순서
+/** 맵에서 ✊ — 첫 번째 프로젝트의 메인 문서를 열고 맵을 닫는다 */
+function mapSelectFirst() {
+  const first = mapRoots[0]
+  if (!first) { showGestureToast('✊', '프로젝트가 없습니다'); return }
+  closeMap()
+  showGestureToast('✊📁', '첫 번째 프로젝트로 이동')
+  tick()
+  if (first !== currentDoc) selectDoc(first)
+}
 function openMap() {
   $('mapView').hidden = false
   renderMap()
