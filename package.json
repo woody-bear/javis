@@ -45,6 +45,7 @@
     }
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1"
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "marked": "^18.0.11"
   }
 }

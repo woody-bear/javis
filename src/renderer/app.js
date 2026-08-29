@@ -105,6 +105,8 @@ async function refreshDocs(selectId) {
 
 function showEmpty() {
   $('docFrame').hidden = true
+  $('mdView').hidden = true
+  $('docBar').hidden = true
   $('emptyState').style.display = 'flex'
 }
 
@@ -155,9 +157,156 @@ $('docFrame').addEventListener('load', () => {
 
 function reloadFrame() {
   if (!currentDoc) return
+  if (currentDoc.endsWith('.md')) {
+    renderMd(currentDoc, true)
+    return
+  }
   const frame = $('docFrame')
   const base = frame.src.split('?')[0]
   frame.src = `${base}?t=${Date.now()}`
+}
+
+// ── 마크다운 블록 편집기 (노션 스타일) ─────────────────────────────
+// 문서를 빈 줄 기준 블록으로 쪼개 렌더 — 블록 클릭 → 원문 마크다운 편집 →
+// Cmd+Enter/포커스아웃 저장, ESC 취소. 코드펜스(```)는 한 블록으로 유지.
+let markedMod = null
+let mdBlocks = []          // 현재 문서의 블록(원문 마크다운) 배열
+let mdEditing = false
+
+async function getMarked() {
+  if (!markedMod) {
+    const m = await import('./vendor/marked.esm.js')
+    markedMod = m.marked
+    markedMod.setOptions({ gfm: true, breaks: false })
+  }
+  return markedMod
+}
+
+function splitBlocks(md) {
+  const lines = md.replace(/\r\n/g, '\n').split('\n')
+  const blocks = []
+  let cur = []
+  let inFence = false
+  for (const ln of lines) {
+    if (/^```/.test(ln.trim())) { inFence = !inFence; cur.push(ln); continue }
+    if (!inFence && ln.trim() === '') {
+      if (cur.length) { blocks.push(cur.join('\n')); cur = [] }
+    } else {
+      cur.push(ln)
+    }
+  }
+  if (cur.length) blocks.push(cur.join('\n'))
+  return blocks
+}
+
+async function saveBlocks() {
+  const content = mdBlocks.join('\n\n') + '\n'
+  await window.jarvis.docs.write(currentDoc, content)
+}
+
+async function renderMd(id, keepScroll = false) {
+  if (mdEditing) return   // 편집 중엔 외부 갱신으로 덮지 않음
+  const marked = await getMarked()
+  const view = $('mdView')
+  const scroll = keepScroll ? view.scrollTop : 0
+  const md = await window.jarvis.docs.read(id)
+  mdBlocks = splitBlocks(md)
+  view.innerHTML = ''
+  mdBlocks.forEach((blk, i) => view.appendChild(renderBlock(marked, blk, i)))
+  const add = document.createElement('button')
+  add.id = 'mdAdd'
+  add.textContent = '＋ 블록 추가'
+  add.addEventListener('click', () => {
+    mdBlocks.push('')
+    renderMdAndEdit(mdBlocks.length - 1)
+  })
+  view.appendChild(add)
+  view.scrollTop = scroll
+}
+
+async function renderMdAndEdit(idx) {
+  await renderMd(currentDoc, true)
+  const el = $('mdView').querySelectorAll('.blk')[idx]
+  if (el) el.dispatchEvent(new Event('jarvis-edit'))
+}
+
+function renderBlock(marked, blk, i) {
+  const el = document.createElement('div')
+  el.className = 'blk'
+  el.innerHTML = marked.parse(blk)
+  const acts = document.createElement('div')
+  acts.className = 'blk-acts'
+  acts.innerHTML = `<button class="a-add" title="아래에 블록 추가">＋</button><button class="a-del" title="블록 삭제">✕</button>`
+  el.appendChild(acts)
+
+  const startEdit = () => {
+    if (mdEditing) return
+    mdEditing = true
+    const ta = document.createElement('textarea')
+    ta.value = mdBlocks[i]
+    el.innerHTML = ''
+    el.appendChild(ta)
+    const hint = document.createElement('div')
+    hint.className = 'blk-hint'
+    hint.textContent = '⌘Enter 저장 · ESC 취소 · 비우고 저장하면 삭제'
+    el.appendChild(hint)
+    ta.style.height = 'auto'
+    ta.style.height = `${Math.max(ta.scrollHeight + 4, 44)}px`
+    ta.focus()
+    ta.setSelectionRange(ta.value.length, ta.value.length)
+    ta.addEventListener('input', () => {
+      ta.style.height = 'auto'
+      ta.style.height = `${Math.max(ta.scrollHeight + 4, 44)}px`
+    })
+    const finish = async (save) => {
+      if (!mdEditing) return
+      mdEditing = false
+      if (save) {
+        const v = ta.value.replace(/\s+$/, '')
+        if (v.trim() === '') mdBlocks.splice(i, 1)
+        else mdBlocks[i] = v
+        await saveBlocks()
+      } else if (mdBlocks[i] === '') {
+        mdBlocks.splice(i, 1)   // 새로 추가했다 취소한 빈 블록 정리
+      }
+      renderMd(currentDoc, true)
+      refreshDocs()   // 제목(# 헤딩) 수정 반영
+    }
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); finish(true) }
+      if (e.key === 'Escape') { e.stopPropagation(); finish(false) }
+    })
+    ta.addEventListener('blur', () => finish(true))
+  }
+
+  el.addEventListener('jarvis-edit', startEdit)
+  el.addEventListener('click', (e) => {
+    // 링크 클릭: 문서 링크는 앱 내 이동, 외부 링크는 무시
+    const a = e.target.closest('a')
+    if (a) {
+      e.preventDefault()
+      const href = a.getAttribute('href') || ''
+      if (href.endsWith('.md') || href.endsWith('.html')) selectDoc(decodeURI(href))
+      return
+    }
+    if (e.target.closest('.blk-acts')) return
+    if (e.target.closest('summary')) return   // details 접기/펼치기는 그대로
+    startEdit()
+  })
+  acts.querySelector('.a-add').addEventListener('click', (e) => {
+    e.stopPropagation()
+    if (mdEditing) return
+    mdBlocks.splice(i + 1, 0, '')
+    renderMdAndEdit(i + 1)
+  })
+  acts.querySelector('.a-del').addEventListener('click', async (e) => {
+    e.stopPropagation()
+    if (mdEditing) return
+    mdBlocks.splice(i, 1)
+    await saveBlocks()
+    renderMd(currentDoc, true)
+  })
+  return el
 }
 
 // ── 새 문서 / 갈래 모달 ───────────────────────────────────────────

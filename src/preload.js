@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('jarvis', {
     createBranch: (parentId, title) => ipcRenderer.invoke('docs:createBranch', { parentId, title }),
     remove: (id) => ipcRenderer.invoke('docs:delete', id),
     path: (id) => ipcRenderer.invoke('docs:path', id),
+    read: (id) => ipcRenderer.invoke('docs:read', id),
+    write: (id, content) => ipcRenderer.invoke('docs:write', { id, content }),
     getOrder: () => ipcRenderer.invoke('docs:getOrder'),
     setOrder: (group, ids) => ipcRenderer.invoke('docs:setOrder', { group, ids }),
     getProject: (id) => ipcRenderer.invoke('docs:getProject', id),

@@ -65,19 +65,28 @@ function docProject(docId) {
 function readTree() { return readJson(treePath(), {}) }
 function writeTree(t) { writeJson(treePath(), t) }
 
-/** 상위 문서 HTML의 '갈래' 섹션에 하위 문서 링크 추가 (없으면 섹션 생성) */
+/** 상위 문서의 '갈래' 섹션에 하위 문서 링크 추가 (md/html 자동 판별, 없으면 섹션 생성) */
 function addBranchLink(parentId, childId, childTitle) {
   const pp = path.join(docsDir(), parentId)
   if (!fs.existsSync(pp)) return
-  let html = fs.readFileSync(pp, 'utf8')
-  const li = `<li><a href="${childId}" style="color:#d99a3d">${childTitle}</a></li>`
-  if (html.includes('<ul id="branches">')) {
-    html = html.replace('<ul id="branches">', `<ul id="branches">\n${li}`)
+  let doc = fs.readFileSync(pp, 'utf8')
+  if (parentId.endsWith('.md')) {
+    const li = `- [${childTitle}](${childId})`
+    if (/^## 갈래\s*$/m.test(doc)) {
+      doc = doc.replace(/^## 갈래\s*$/m, `## 갈래\n\n${li}`)
+    } else {
+      doc = `${doc.replace(/\s*$/, '')}\n\n## 갈래\n\n${li}\n`
+    }
   } else {
-    const block = `<h2>갈래</h2>\n<ul id="branches">\n${li}\n</ul>\n`
-    html = html.includes('</body>') ? html.replace('</body>', `${block}</body>`) : html + block
+    const li = `<li><a href="${childId}" style="color:#d99a3d">${childTitle}</a></li>`
+    if (doc.includes('<ul id="branches">')) {
+      doc = doc.replace('<ul id="branches">', `<ul id="branches">\n${li}`)
+    } else {
+      const block = `<h2>갈래</h2>\n<ul id="branches">\n${li}\n</ul>\n`
+      doc = doc.includes('</body>') ? doc.replace('</body>', `${block}</body>`) : doc + block
+    }
   }
-  fs.writeFileSync(pp, html)
+  fs.writeFileSync(pp, doc)
 }
 function removeBranchLink(parentId, childId) {
   const pp = path.join(docsDir(), parentId)
@@ -90,23 +99,29 @@ function removeBranchLink(parentId, childId) {
 // ── 문서 관리 ─────────────────────────────────────────────────────
 function slugify(title) {
   const base = title.trim().replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'doc'
-  let name = `${base}.html`
+  const taken = (n) => fs.existsSync(path.join(docsDir(), `${n}.md`)) || fs.existsSync(path.join(docsDir(), `${n}.html`))
+  let name = base
   let i = 2
-  while (fs.existsSync(path.join(docsDir(), name))) { name = `${base}-${i}.html`; i += 1 }
-  return name
+  while (taken(name)) { name = `${base}-${i}`; i += 1 }
+  return `${name}.md`
 }
 function docTitle(file) {
   try {
     const head = fs.readFileSync(path.join(docsDir(), file), 'utf8').slice(0, 4096)
-    const m = /<title>([^<]*)<\/title>/i.exec(head)
-    if (m && m[1].trim()) return m[1].trim()
+    if (file.endsWith('.md')) {
+      const m = /^#\s+(.+)$/m.exec(head)
+      if (m && m[1].trim()) return m[1].trim()
+    } else {
+      const m = /<title>([^<]*)<\/title>/i.exec(head)
+      if (m && m[1].trim()) return m[1].trim()
+    }
   } catch { /* noop */ }
-  return file.replace(/\.html$/, '')
+  return file.replace(/\.(html|md)$/, '')
 }
 function listDocs() {
   ensureDirs()
   const tree = readTree()
-  const files = new Set(fs.readdirSync(docsDir()).filter((f) => f.endsWith('.html')))
+  const files = new Set(fs.readdirSync(docsDir()).filter((f) => f.endsWith('.html') || f.endsWith('.md')))
   return [...files]
     .map((f) => {
       const st = fs.statSync(path.join(docsDir(), f))
@@ -120,10 +135,23 @@ function listDocs() {
     .sort((a, b) => b.mtime - a.mtime)
 }
 function skeletonHtml(title, parentId, parentTitle) {
-  const parentLink = parentId
-    ? `<p class="meta">↰ 상위 문서: <a href="${parentId}" style="color:#d99a3d">${parentTitle || parentId}</a></p>\n`
-    : ''
-  return baseSkeleton(title, parentLink)
+  const parentLink = parentId ? `↰ 상위 문서: [${parentTitle || parentId}](${parentId})\n\n` : ''
+  return `# ${title}
+
+${parentLink}> Jarvis 문서 · 음성/텍스트 피드백으로 보강됩니다 · 블록을 클릭하면 직접 편집
+
+## ✅ 완성된 기능
+
+- (아직 없음)
+
+## ➕ 추가할 기능
+
+- (아이디어를 말하면 여기에 쌓입니다)
+
+## 🔧 개선할 기능
+
+- (완성된 기능의 보완점이 여기로 옮겨집니다)
+`
 }
 function baseSkeleton(title, parentLink) {
   return `<!doctype html>
@@ -170,10 +198,11 @@ function systemPrompt(docPath, parentPath) {
       '상위 문서의 맥락을 이어받아 이 갈래의 주제를 더 깊게 발전시켜라. 상위 문서와 중복 서술하지 말 것.',
     ] : []),
     '규칙:',
-    '1) 사용자의 질문/피드백 내용을 반영해 위 HTML 문서를 직접 수정(Write/Edit)해 보강한다.',
-    '   문서는 self-contained 한국어 HTML(다크 배경 유지)로, 대화가 쌓일수록 좋은 참조 문서가 되게 다듬어라.',
-    '1-a) 문서 상단(제목 바로 아래)에 다음 3개 섹션을 항상 유지·갱신한다 (없으면 생성):',
-    '   ✅ 완성된 기능(ul#done) · ➕ 추가할 기능(ul#todo) · 🔧 개선할 기능(ul#improve)',
+    docPath.endsWith('.md')
+      ? '1) 사용자의 질문/피드백 내용을 반영해 위 Markdown 문서를 직접 수정(Write/Edit)해 보강한다. 한국어. HTML 태그는 <details> 외 사용 금지.'
+      : '1) 사용자의 질문/피드백 내용을 반영해 위 HTML 문서를 직접 수정(Write/Edit)해 보강한다. 문서는 self-contained 한국어 HTML(다크 배경 유지).',
+    '1-a) 문서 상단(제목 바로 아래)에 다음 3개 섹션(헤딩)을 항상 유지·갱신한다 (없으면 생성):',
+    '   "## ✅ 완성된 기능" · "## ➕ 추가할 기능" · "## 🔧 개선할 기능"',
     '   - 새 아이디어/요청 → "추가할 기능"에 항목 추가 후 대화로 발전시킨다.',
     '   - 구현이 끝난 항목 → "완성된 기능"으로 옮기고, 보완 여지는 "개선할 기능"에 후속 항목으로 남긴다.',
     '   - 개선까지 반영되면 해당 개선 항목을 완성으로 승격한다. 섹션 제목·id는 바꾸지 않는다.',
@@ -375,6 +404,13 @@ function registerIpc() {
     return { ok: true }
   })
   ipcMain.handle('docs:path', (_e, id) => path.join(docsDir(), path.basename(id)))
+  ipcMain.handle('docs:read', (_e, id) => {
+    try { return fs.readFileSync(path.join(docsDir(), path.basename(id)), 'utf8') } catch { return '' }
+  })
+  ipcMain.handle('docs:write', (_e, { id, content }) => {
+    fs.writeFileSync(path.join(docsDir(), path.basename(id)), content)
+    return { ok: true }
+  })
   // 수동 정렬 순서 — { "": [루트 ids], "<parentId>": [하위 ids] }
   ipcMain.handle('docs:getOrder', () => readJson(orderPath(), {}))
   ipcMain.handle('docs:getProject', (_e, id) => {

@@ -98,6 +98,52 @@ body {
 .doc-item.drop-below { box-shadow: inset 0 -2px 0 var(--accent); }
 #docFrameWrap { flex: 1; position: relative; background: var(--bg); }
 #docFrame { width: 100%; height: 100%; border: none; background: #1b1a18; }
+#mdView {
+  position: absolute; inset: 0; overflow-y: auto;
+  padding: 36px 48px 120px; max-width: 860px; margin: 0 auto;
+  font-size: 14.5px; line-height: 1.75; color: var(--fg-0);
+}
+.blk { position: relative; border-radius: 8px; padding: 2px 10px; margin: 2px -10px; cursor: text; }
+.blk:hover { background: var(--bg-1); }
+.blk:hover .blk-acts { visibility: visible; }
+.blk-acts {
+  visibility: hidden; position: absolute; right: 4px; top: 4px; display: flex; gap: 2px;
+}
+.blk-acts button {
+  border: 1px solid var(--border); background: var(--bg-2); color: var(--fg-2);
+  border-radius: 5px; font-size: 10.5px; padding: 1px 7px; cursor: pointer;
+}
+.blk-acts button:hover { color: var(--fg-0); border-color: var(--accent); }
+.blk textarea {
+  width: 100%; background: var(--bg-2); color: var(--fg-0);
+  border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px;
+  font-family: "SF Mono", Menlo, monospace; font-size: 13px; line-height: 1.6;
+  resize: vertical; outline: none; min-height: 44px;
+}
+.blk-hint { font-size: 10px; color: var(--fg-2); margin-top: 3px; }
+#mdAdd {
+  display: block; margin: 14px 0 0; border: 1px dashed var(--border); background: transparent;
+  color: var(--fg-2); border-radius: 8px; padding: 7px 12px; width: 100%;
+  font-size: 12px; cursor: pointer; text-align: left;
+}
+#mdAdd:hover { color: var(--accent); border-color: var(--accent); }
+/* 마크다운 요소 */
+#mdView h1 { font-size: 25px; line-height: 1.3; margin: 4px 0 8px; }
+#mdView h2 { font-size: 17.5px; margin: 26px 0 6px; padding-top: 14px; border-top: 1px solid var(--border); }
+#mdView h3 { font-size: 15px; margin: 18px 0 4px; }
+#mdView p { margin: 6px 0; }
+#mdView ul, #mdView ol { margin: 6px 0; padding-left: 24px; }
+#mdView li { margin: 3px 0; }
+#mdView blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--accent); color: var(--fg-2); }
+#mdView code { background: var(--bg-2); padding: 1px 6px; border-radius: 4px; font-size: 0.87em; font-family: "SF Mono", Menlo, monospace; }
+#mdView pre { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+#mdView pre code { background: transparent; padding: 0; }
+#mdView a { color: var(--accent); text-decoration: none; }
+#mdView a:hover { text-decoration: underline; }
+#mdView table { border-collapse: collapse; margin: 8px 0; }
+#mdView th, #mdView td { border: 1px solid var(--border); padding: 5px 10px; font-size: 13px; }
+#mdView details { background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; margin: 6px 0; }
+#mdView summary { cursor: pointer; color: var(--fg-2); font-size: 12.5px; }
 #emptyState {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; text-align: center; padding: 24px;
