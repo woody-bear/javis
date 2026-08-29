@@ -523,6 +523,7 @@ function registerIpc() {
   })
   // 수동 정렬 순서 — { "": [루트 ids], "<parentId>": [하위 ids] }
   ipcMain.handle('docs:getOrder', () => readJson(orderPath(), {}))
+  ipcMain.handle('docs:projectsMap', () => readJson(docProjectsPath(), {}))
   ipcMain.handle('docs:getProject', (_e, id) => {
     const m = readJson(docProjectsPath(), {})
     const own = m[id] && fs.existsSync(m[id]) ? m[id] : null

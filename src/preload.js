@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('jarvis', {
     write: (id, content) => ipcRenderer.invoke('docs:write', { id, content }),
     convertToMd: (id, content) => ipcRenderer.invoke('docs:convertToMd', { id, content }),
     getOrder: () => ipcRenderer.invoke('docs:getOrder'),
+    projectsMap: () => ipcRenderer.invoke('docs:projectsMap'),
     setOrder: (group, ids) => ipcRenderer.invoke('docs:setOrder', { group, ids }),
     getProject: (id) => ipcRenderer.invoke('docs:getProject', id),
     pickProject: (id) => ipcRenderer.invoke('docs:pickProject', id),

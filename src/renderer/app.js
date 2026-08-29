@@ -706,6 +706,7 @@ $('projRow').addEventListener('click', async () => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return
   if (!$('modal').hidden) { $('modal').hidden = true; return }
+  if (!$('mapView').hidden) { closeMap(); return }
   if (recording) { stopRecording(false); return }   // 녹음 취소 (전송 안 함)
   if (busy) {
     if (analysisQueue.length) {
@@ -959,9 +960,29 @@ function pointingDir(lm) {
 
 const NAV_COOLDOWN_MS = 750
 let okHits = 0
+let palmHits = 0
 let navHits = 0
 let navLastDir = null
 let navLastFire = 0
+
+/** 🖐 손바닥 — 프로젝트 맵 토글. 발동 시 true */
+function handlePalm(isPalm) {
+  if (!isPalm) { palmHits = 0; return false }
+  palmHits += 1
+  if (palmHits >= GESTURE_HITS && Date.now() - gestureLastFire > 2000) {
+    gestureLastFire = Date.now()
+    palmHits = 0
+    if ($('mapView').hidden) {
+      showGestureToast('🖐', '프로젝트 맵')
+      openMap()
+    } else {
+      showGestureToast('🖐', '맵 닫기')
+      closeMap()
+    }
+    return true
+  }
+  return false
+}
 
 async function startGesture() {
   if (gestureOn) return
@@ -995,12 +1016,13 @@ async function startGesture() {
     if (seen !== handSeen) {
       handSeen = seen
       $('gestureStatus').textContent = seen
-        ? '✋ 손 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서'
-        : '대기 중 — ✊ 듣기 · ☝ 위/아래 이동 · 👉 오른쪽: 세부문서 진입'
+        ? '✋ 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 맵'
+        : '대기 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 프로젝트 맵'
     }
     const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
     const lm = result && result.landmarks && result.landmarks[0]
     const isFist = g && g.categoryName === 'Closed_Fist' && g.score >= GESTURE_SCORE
+    const isPalm = g && g.categoryName === 'Open_Palm' && g.score >= GESTURE_SCORE
 
     // 👌 — 갈래 생성 제안이 활성일 때: 확인 → 갈래 주제 음성 입력 시작 (작업 중 제외)
     if (!recording && !busy && branchOffer && Date.now() < branchOffer.until && lm && isOkSign(lm)) {
@@ -1023,6 +1045,7 @@ async function startGesture() {
 
     // ── Claude 작업 중: 문서 탐색(☝👇👉)은 허용, 음성 시작(✊)은 안내만 ──
     if (busy) {
+      if (handlePalm(isPalm)) { gestureHits = 0; navHits = 0; return }
       if (isFist) {
         gestureHits += 1
         if (gestureHits >= GESTURE_HITS && Date.now() - gestureLastFire > GESTURE_COOLDOWN_MS) {
@@ -1076,6 +1099,7 @@ async function startGesture() {
       }
     } else {
       gestureHits = 0
+      if (handlePalm(isPalm)) { navHits = 0; return }
       // ☝ 검지 위/아래 — 문서 목록 한 칸 이동
       const dir = lm ? pointingDir(lm) : null
       if (dir && dir === navLastDir) navHits += 1
@@ -1148,6 +1172,120 @@ window.jarvis.events.onNotice((msg) => {
   reply.hidden = false
 })
 setInterval(drainAnalysisQueue, 30_000)
+
+
+// ── 프로젝트 맵 — 전체 프로젝트·갈래 문서를 트리로 연결해 한눈에 ──────
+const MAP_NODE_W = 200
+const MAP_NODE_H = 46
+const MAP_GAP_X = 80
+const MAP_GAP_Y = 12
+const MAP_TREE_GAP = 26
+
+function escXml(t) {
+  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+function trunc(t, n) { return t.length > n ? `${t.slice(0, n - 1)}…` : t }
+function relTime(ms) {
+  const d = Math.floor((Date.now() - ms) / 60000)
+  if (d < 60) return `${Math.max(d, 0)}분 전`
+  if (d < 60 * 24) return `${Math.floor(d / 60)}시간 전`
+  return `${Math.floor(d / 1440)}일 전`
+}
+
+async function renderMap() {
+  const [docs, order, projects] = await Promise.all([
+    window.jarvis.docs.list(),
+    window.jarvis.docs.getOrder(),
+    window.jarvis.docs.projectsMap(),
+  ])
+  const sortGroup = (items, groupKey) => {
+    const saved = order[groupKey] || []
+    const idx = (id) => { const i = saved.indexOf(id); return i === -1 ? Infinity : i }
+    return [...items].sort((a, b) => idx(a.id) - idx(b.id))
+  }
+  const children = new Map()
+  for (const d of docs) {
+    if (d.parentId) {
+      if (!children.has(d.parentId)) children.set(d.parentId, [])
+      children.get(d.parentId).push(d)
+    }
+  }
+  for (const [k, v] of children) children.set(k, sortGroup(v, k))
+  const roots = sortGroup(docs.filter((x) => !x.parentId), '')
+
+  // 레이아웃: 깊이 = x, 리프 순서 = y (부모는 자식들 세로 중앙)
+  const pos = new Map()
+  let cursorY = 0
+  let maxDepth = 0
+  const place = (d, depth) => {
+    maxDepth = Math.max(maxDepth, depth)
+    const kids = children.get(d.id) || []
+    let cy
+    if (!kids.length) {
+      cy = cursorY
+      cursorY += MAP_NODE_H + MAP_GAP_Y
+    } else {
+      const ys = kids.map((k) => place(k, depth + 1))
+      cy = (ys[0] + ys[ys.length - 1]) / 2
+    }
+    pos.set(d.id, { d, depth, y: cy })
+    return cy
+  }
+  for (const r of roots) {
+    place(r, 0)
+    cursorY += MAP_TREE_GAP   // 프로젝트(트리) 사이 여백
+  }
+
+  const W = (maxDepth + 1) * (MAP_NODE_W + MAP_GAP_X) + 40
+  const H = Math.max(cursorY + 20, 200)
+  const x = (depth) => 20 + depth * (MAP_NODE_W + MAP_GAP_X)
+
+  let linksSvg = ''
+  let nodesSvg = ''
+  for (const { d, depth, y } of pos.values()) {
+    if (d.parentId && pos.has(d.parentId)) {
+      const p = pos.get(d.parentId)
+      const x1 = x(p.depth) + MAP_NODE_W
+      const y1 = p.y + MAP_NODE_H / 2
+      const x2 = x(depth)
+      const y2 = y + MAP_NODE_H / 2
+      const mx = (x1 + x2) / 2
+      linksSvg += `<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" fill="none" stroke="#8d877c" stroke-width="1.5" opacity="0.7"/>`
+    }
+    const isRoot = !d.parentId
+    const proj = projects[d.id]
+    const projName = proj ? proj.split('/').filter(Boolean).pop() : null
+    const active = d.id === currentDoc
+    const stroke = active ? '#e05a50' : isRoot ? '#d99a3d' : '#3a3733'
+    const branchCount = (children.get(d.id) || []).length
+    const meta = [
+      isRoot && projName ? `📁 ${escXml(projName)}` : null,
+      branchCount ? `갈래 ${branchCount}` : null,
+      relTime(d.mtime),
+    ].filter(Boolean).join(' · ')
+    nodesSvg += `<g class="map-node" data-id="${escXml(d.id)}" transform="translate(${x(depth)}, ${y})">` +
+      `<rect width="${MAP_NODE_W}" height="${MAP_NODE_H}" rx="9" fill="#232220" stroke="${stroke}" stroke-width="${isRoot || active ? 1.6 : 1}"/>` +
+      `<text x="12" y="19" font-size="12.5" font-weight="700" fill="#ece9e3">${escXml(trunc(d.title, 15))}</text>` +
+      `<text x="12" y="35" font-size="9.5" fill="#8d877c">${meta}</text>` +
+      `</g>`
+  }
+  $('mapBody').innerHTML =
+    `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" font-family="Apple SD Gothic Neo, sans-serif">${linksSvg}${nodesSvg}</svg>`
+}
+
+function openMap() {
+  $('mapView').hidden = false
+  renderMap()
+}
+function closeMap() { $('mapView').hidden = true }
+$('btnMap').addEventListener('click', openMap)
+$('mapClose').addEventListener('click', closeMap)
+$('mapBody').addEventListener('click', (e) => {
+  const node = e.target.closest('.map-node')
+  if (!node) return
+  closeMap()
+  selectDoc(node.getAttribute('data-id'))
+})
 
 async function initDocs() {
   await refreshDocs()
