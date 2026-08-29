@@ -568,15 +568,23 @@ function registerIpc() {
   ipcMain.handle('docs:reveal', (_e, id) => shell.showItemInFolder(path.join(docsDir(), path.basename(id))))
 
   ipcMain.handle('chat:send', async (e, { docId, text }) => {
-    return runClaude(docId, text, e.sender)
+    try {
+      return await runClaude(docId, text, e.sender)
+    } catch (err) {
+      return { ok: false, text: (err && err.message) || '실행 실패' }
+    }
   })
   ipcMain.handle('chat:busy', () => !!claudeProc)
   ipcMain.handle('chat:abort', () => {
     if (!claudeProc) return false
+    const proc = claudeProc
     try {
-      claudeProc.aborted = true
-      claudeProc.kill('SIGTERM')
-      setTimeout(() => { try { claudeProc && claudeProc.kill('SIGKILL') } catch { /* noop */ } }, 3000)
+      proc.aborted = true
+      proc.kill('SIGTERM')
+      // 3초 내 안 죽으면 강제 종료 — 반드시 '그' 프로세스만 (참조 캡처, exitCode 확인)
+      setTimeout(() => {
+        try { if (proc.exitCode === null && !proc.killed) proc.kill('SIGKILL') } catch { /* noop */ }
+      }, 3000)
     } catch { /* noop */ }
     return true
   })
@@ -597,6 +605,44 @@ function registerIpc() {
     if (r.canceled || !r.filePaths[0]) return getConfig()
     return setConfig({ projectPath: r.filePaths[0] })
   })
+}
+
+// ── ~/workflow 프로젝트 자동 스캔 — 새 프로젝트 → 메인 분석 문서 자동 생성 ──
+const WORKFLOW_DIR = path.join(os.homedir(), 'workflow')
+const SCAN_INTERVAL_MS = 10 * 60 * 1000
+
+function scanWorkflowProjects() {
+  let created = []
+  try {
+    if (!fs.existsSync(WORKFLOW_DIR)) return created
+    const linked = new Set(Object.values(readJson(docProjectsPath(), {})).map((v) => path.resolve(v)))
+    for (const name of fs.readdirSync(WORKFLOW_DIR)) {
+      if (name.startsWith('.')) continue
+      const proj = path.join(WORKFLOW_DIR, name)
+      try { if (!fs.statSync(proj).isDirectory()) continue } catch { continue }
+      if (linked.has(path.resolve(proj))) continue   // 이미 메인 문서가 연결된 프로젝트
+      // 메인 문서 생성 → <프로젝트>/jarvis/ 에 배치 + 프로젝트 연결
+      const id = slugify(name)
+      const dir = path.join(proj, 'jarvis')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, id), skeletonHtml(name, null, null))
+      const roots = docRoots()
+      roots[id] = dir
+      writeJson(rootsPath(), roots)
+      const pm = readJson(docProjectsPath(), {})
+      pm[id] = proj
+      writeJson(docProjectsPath(), pm)
+      created.push({ id, name, project: proj })
+      logToRenderer(`프로젝트 감지: ${name} → 메인 문서 생성`)
+    }
+  } catch (e) { console.error('workflow scan 실패:', e) }
+  if (created.length && win && !win.isDestroyed()) {
+    win.webContents.send('docs:autocreated', created)
+  }
+  return created
+}
+function logToRenderer(msg) {
+  if (win && !win.isDestroyed()) win.webContents.send('app:notice', msg)
 }
 
 // ── 윈도우 ────────────────────────────────────────────────────────
@@ -621,6 +667,21 @@ app.whenReady().then(() => {
   ensureDirs()
   registerIpc()
   createWindow()
+  // 앱 시작 3초 후 + 주기적으로 workflow 프로젝트 스캔
+  setTimeout(scanWorkflowProjects, 3000)
+  setInterval(scanWorkflowProjects, SCAN_INTERVAL_MS)
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
-app.on('window-all-closed', () => { stopSpeak(); app.quit() })
+function killClaude() {
+  if (!claudeProc) return
+  const proc = claudeProc
+  try {
+    proc.aborted = true
+    proc.kill('SIGTERM')
+    setTimeout(() => {
+      try { if (proc.exitCode === null && !proc.killed) proc.kill('SIGKILL') } catch { /* noop */ }
+    }, 2000)
+  } catch { /* noop */ }
+}
+app.on('before-quit', killClaude)
+app.on('window-all-closed', () => { stopSpeak(); killClaude(); app.quit() })

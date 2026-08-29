@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('jarvis', {
     clearProject: (id) => ipcRenderer.invoke('docs:clearProject', id),
     reveal: (id) => ipcRenderer.invoke('docs:reveal', id),
   },
+  events: {
+    onAutoCreated: (cb) => ipcRenderer.on('docs:autocreated', (_e, list) => cb(list)),
+    onNotice: (cb) => ipcRenderer.on('app:notice', (_e, msg) => cb(msg)),
+  },
   chat: {
     send: (docId, text) => ipcRenderer.invoke('chat:send', { docId, text }),
     busy: () => ipcRenderer.invoke('chat:busy'),

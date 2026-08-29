@@ -114,9 +114,16 @@ async function refreshDocProject() {
   if (!currentDoc) { $('docBar').hidden = true; return }
   const info = await window.jarvis.docs.getProject(currentDoc)
   const base = (info.effective || '').split('/').filter(Boolean).pop() || info.effective
-  $('docProj').textContent = info.isOwn ? `📁 ${base}` : `📁 전역 기본 (${base})`
-  $('docProj').classList.toggle('own', info.isOwn)
-  $('docProj').title = `작업 프로젝트: ${info.effective}\n클릭해서 이 문서 전용 프로젝트로 변경`
+  $('docProj').textContent = info.isOwn
+    ? `📁 ${base}`
+    : info.inherited
+      ? `📁 ${base} (상위 문서에서 상속)`
+      : `📁 전역 기본 (${base})`
+  $('docProj').classList.toggle('own', !!info.isOwn || !!info.inherited)
+  $('docProj').title = `작업 프로젝트: ${info.effective}` +
+    (info.isOwn ? '\n이 문서에 직접 연결됨 — 문서는 <프로젝트>/jarvis/에 저장' :
+     info.inherited ? '\n상위 갈래 문서의 연결을 상속' : '\n미연결 — 전역 기본 프로젝트 사용') +
+    '\n클릭해서 이 문서 전용 프로젝트로 변경'
   $('docProjClear').hidden = !info.isOwn
   $('docBar').hidden = false
 }
@@ -153,11 +160,20 @@ async function selectDoc(id) {
   currentDoc = id
   refreshDocProject()
   $('docConvert').hidden = !id.endsWith('.html')
-  const p = await window.jarvis.docs.path(id)
-  const frame = $('docFrame')
-  frame.src = `file://${encodeURI(p)}?t=${Date.now()}`
-  frame.hidden = false
   $('emptyState').style.display = 'none'
+  if (id.endsWith('.md')) {
+    // 마크다운 문서 — 노션식 블록 편집 뷰
+    $('docFrame').hidden = true
+    $('mdView').hidden = false
+    await renderMd(id)
+  } else {
+    // 레거시 HTML 문서 — iframe 뷰
+    $('mdView').hidden = true
+    const p = await window.jarvis.docs.path(id)
+    const frame = $('docFrame')
+    frame.src = `file://${encodeURI(p)}?t=${Date.now()}`
+    frame.hidden = false
+  }
   document.querySelectorAll('.doc-item').forEach((el) => el.classList.remove('active'))
   refreshDocs()  // active 클래스 갱신
   $('input').focus()
@@ -568,7 +584,11 @@ async function stopRecording(transcribeIt) {
   chunks = []
   const res = await window.jarvis.stt.transcribe(wav)
   setBusy(false)
-  if (res.ok && res.text) {
+  if (res.ok && res.text && sttIntent && sttIntent.type === 'branchTitle') {
+    const parent = sttIntent.parentId
+    sttIntent = null
+    createBranchByVoice(parent, res.text)
+  } else if (res.ok && res.text) {
     // 인식된 질문을 '요청:' 에코로 표시한 뒤 바로 실행
     sendMessage(res.text)
   } else if (!res.ok) {
@@ -645,8 +665,13 @@ document.addEventListener('keydown', (e) => {
   if (!$('modal').hidden) { $('modal').hidden = true; return }
   if (recording) { stopRecording(false); return }   // 녹음 취소 (전송 안 함)
   if (busy) {
+    if (analysisQueue.length) {
+      analysisQueue.length = 0   // 대기 중 자동 분석도 함께 취소 (좀비 큐 방지)
+      $('activityText').textContent = '중단하는 중… (자동 분석 큐 비움)'
+    } else {
+      $('activityText').textContent = '중단하는 중…'
+    }
     window.jarvis.chat.abort()
-    $('activityText').textContent = '중단하는 중…'
   }
 })
 
@@ -836,12 +861,37 @@ function showGestureToast(icon, label) {
   gestureToastTimer = setTimeout(() => { el.hidden = true }, 950)
 }
 
+let branchOffer = null   // { parentId, until } — 👌 제스처로 갈래 생성 제안 활성
+let sttIntent = null     // { type: 'branchTitle', parentId } — 다음 음성 인식의 용도
+
 function navigateInto() {
   const child = docFirstChild[currentDoc]
-  if (!child) { showGestureToast('👉', '갈래 문서가 없습니다'); return }
+  if (!child) {
+    branchOffer = { parentId: currentDoc, until: Date.now() + 10_000 }
+    showGestureToast('👉', '갈래 없음 — 👌 하면 새 갈래를 만듭니다')
+    return
+  }
   showGestureToast('👉', '세부문서로 이동')
   tick()
   selectDoc(child)
+}
+
+/** 👌 (엄지+검지 맞닿음, 나머지 폄) 판정 */
+function isOkSign(lm) {
+  const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+  if (d(lm[4], lm[8]) > 0.055) return null
+  const w = lm[0]
+  const ext = (tip, pip) => d(lm[tip], w) > d(lm[pip], w)
+  return ext(12, 10) && ext(16, 14) && ext(20, 18) ? 'ok' : null
+}
+
+async function createBranchByVoice(parentId, title) {
+  const t = (title || '').trim().replace(/[.。!?]+$/, '')
+  if (t.length < 2) { showGestureToast('👌', '주제를 알아듣지 못했습니다 — 다시 시도'); return }
+  const { id } = await window.jarvis.docs.createBranch(parentId, t)
+  await refreshDocs(id)
+  showGestureToast('🌱', `갈래 생성: ${t}`)
+  sendMessage(`상위 문서의 맥락을 읽고, 갈래 주제 "${t}"를 시작한다. 이 갈래에서 발전시킬 내용을 정리해 문서를 채워줘.`)
 }
 
 /** 손 랜드마크로 '검지만 편 손' 방향 판정 → 'up' | 'down' | 'right' | 'left' | null */
@@ -865,6 +915,7 @@ function pointingDir(lm) {
 }
 
 const NAV_COOLDOWN_MS = 750
+let okHits = 0
 let navHits = 0
 let navLastDir = null
 let navLastFire = 0
@@ -907,6 +958,25 @@ async function startGesture() {
     const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
     const lm = result && result.landmarks && result.landmarks[0]
     const isFist = g && g.categoryName === 'Closed_Fist' && g.score >= GESTURE_SCORE
+
+    // 👌 — 갈래 생성 제안이 활성일 때: 확인 → 갈래 주제 음성 입력 시작
+    if (!recording && branchOffer && Date.now() < branchOffer.until && lm && isOkSign(lm)) {
+      okHits += 1
+      if (okHits >= GESTURE_HITS && Date.now() - gestureLastFire > 1500) {
+        gestureLastFire = Date.now()
+        okHits = 0
+        const parent = branchOffer.parentId
+        branchOffer = null
+        sttIntent = { type: 'branchTitle', parentId: parent }
+        showGestureToast('👌🎙', '갈래 주제를 말하세요')
+        ding()
+        startRecording().catch(() => { sttIntent = null })
+      }
+      navHits = 0
+      gestureHits = 0
+      return
+    }
+    okHits = 0
 
     // ── 음성 대기(녹음) 중: 주먹 다시 쥐면 → 녹음 취소 + 텍스트 입력 대기 전환 ──
     if (recording) {
@@ -980,6 +1050,37 @@ $('chkGesture').addEventListener('change', async (e) => {
 })
 
 // init
+// ── 신규 프로젝트 자동 분석 큐 — claude가 한가할 때 순차 실행 ──
+const analysisQueue = []
+async function drainAnalysisQueue() {
+  if (busy || recording || !analysisQueue.length) return
+  const job = analysisQueue.shift()
+  setBusy(true, `자동 분석: ${job.name} (ESC로 중단)`)
+  procReset()
+  procAppend('', `<span class="pl-tool">▶</span> [자동] ${esc(job.name)} 프로젝트 분석`)
+  const res = await window.jarvis.chat.send(job.id,
+    `이 문서는 '${job.name}' 프로젝트의 메인 분석 문서다. 프로젝트 구조와 핵심 기능을 훑어보고 ` +
+    `개요·주요 기능·구조를 정리해 문서를 채워줘. 완성/추가/개선 3섹션도 현재 코드 기준으로 정리해줘.`)
+  setBusy(false)
+  if (currentDoc === job.id) reloadFrame()
+  refreshDocs()
+  const reply = $('lastReply')
+  reply.textContent = `▶ [자동 분석] ${job.name}\n${res.text || (res.ok ? '완료' : '실패')}`
+  reply.hidden = false
+  setTimeout(drainAnalysisQueue, 1500)
+}
+window.jarvis.events.onAutoCreated((list) => {
+  refreshDocs()
+  for (const it of list) analysisQueue.push(it)
+  drainAnalysisQueue()
+})
+window.jarvis.events.onNotice((msg) => {
+  const reply = $('lastReply')
+  reply.textContent = `ℹ ${msg}`
+  reply.hidden = false
+})
+setInterval(drainAnalysisQueue, 30_000)
+
 async function initDocs() {
   await refreshDocs()
   if (currentDoc) return
