@@ -54,6 +54,14 @@ function setConfig(patch) {
 
 // ── 문서 트리 (갈래) — docs/.doctree.json: { childId: parentId } ──
 function treePath() { return path.join(docsDir(), '.doctree.json') }
+function orderPath() { return path.join(docsDir(), '.docorder.json') }
+function docProjectsPath() { return path.join(docsDir(), '.docprojects.json') }
+/** 문서에 연결된 프로젝트 폴더 (없거나 사라졌으면 null → 전역 기본 사용) */
+function docProject(docId) {
+  const m = readJson(docProjectsPath(), {})
+  const v = m[docId]
+  return v && fs.existsSync(v) ? v : null
+}
 function readTree() { return readJson(treePath(), {}) }
 function writeTree(t) { writeJson(treePath(), t) }
 
@@ -196,9 +204,10 @@ function runClaude(docId, message, sender) {
 
   const emit = (ev) => { if (sender && !sender.isDestroyed()) sender.send('chat:event', ev) }
 
+  const cwd = docProject(docId) || cfg.projectPath
   return new Promise((resolve) => {
     const proc = spawn(findClaude(), args, {
-      cwd: cfg.projectPath,
+      cwd,
       env: { ...process.env },
     })
     claudeProc = proc
@@ -344,9 +353,44 @@ function registerIpc() {
     delete tree[id]
     for (const k of Object.keys(tree)) if (tree[k] === id) delete tree[k]
     writeTree(tree)
+    const pm = readJson(docProjectsPath(), {})
+    delete pm[id]
+    writeJson(docProjectsPath(), pm)
     return { ok: true }
   })
   ipcMain.handle('docs:path', (_e, id) => path.join(docsDir(), path.basename(id)))
+  // 수동 정렬 순서 — { "": [루트 ids], "<parentId>": [하위 ids] }
+  ipcMain.handle('docs:getOrder', () => readJson(orderPath(), {}))
+  ipcMain.handle('docs:getProject', (_e, id) => {
+    const own = docProject(id)
+    return { path: own, effective: own || getConfig().projectPath, isOwn: !!own }
+  })
+  ipcMain.handle('docs:pickProject', async (_e, id) => {
+    const r = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: '이 문서와 연결할 프로젝트 폴더 선택',
+      defaultPath: path.join(os.homedir(), 'workflow'),
+    })
+    if (!r.canceled && r.filePaths[0]) {
+      const m = readJson(docProjectsPath(), {})
+      m[id] = r.filePaths[0]
+      writeJson(docProjectsPath(), m)
+    }
+    const own = docProject(id)
+    return { path: own, effective: own || getConfig().projectPath, isOwn: !!own }
+  })
+  ipcMain.handle('docs:clearProject', (_e, id) => {
+    const m = readJson(docProjectsPath(), {})
+    delete m[id]
+    writeJson(docProjectsPath(), m)
+    return { path: null, effective: getConfig().projectPath, isOwn: false }
+  })
+  ipcMain.handle('docs:setOrder', (_e, { group, ids }) => {
+    const o = readJson(orderPath(), {})
+    o[group || ''] = ids
+    writeJson(orderPath(), o)
+    return { ok: true }
+  })
   ipcMain.handle('docs:reveal', (_e, id) => shell.showItemInFolder(path.join(docsDir(), path.basename(id))))
 
   ipcMain.handle('chat:send', async (e, { docId, text }) => {

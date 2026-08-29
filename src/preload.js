@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld('jarvis', {
     createBranch: (parentId, title) => ipcRenderer.invoke('docs:createBranch', { parentId, title }),
     remove: (id) => ipcRenderer.invoke('docs:delete', id),
     path: (id) => ipcRenderer.invoke('docs:path', id),
+    getOrder: () => ipcRenderer.invoke('docs:getOrder'),
+    setOrder: (group, ids) => ipcRenderer.invoke('docs:setOrder', { group, ids }),
+    getProject: (id) => ipcRenderer.invoke('docs:getProject', id),
+    pickProject: (id) => ipcRenderer.invoke('docs:pickProject', id),
+    clearProject: (id) => ipcRenderer.invoke('docs:clearProject', id),
     reveal: (id) => ipcRenderer.invoke('docs:reveal', id),
   },
   chat: {

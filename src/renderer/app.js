@@ -7,12 +7,22 @@ let busy = false
 let docOrder = []   // 사이드바 렌더 순서 (제스처 위/아래 이동용)
 
 // ── 문서 목록 ─────────────────────────────────────────────────────
+let dragState = null   // { id, group }
+
 async function refreshDocs(selectId) {
   const docs = await window.jarvis.docs.list()
+  const order = await window.jarvis.docs.getOrder()
   const list = $('docList')
   list.innerHTML = ''
 
-  // 트리 구성: 루트(mtime 최신순) → 하위 갈래 재귀 (depth 들여쓰기)
+  // 수동 순서 적용: 저장된 순서 우선, 미등록 문서는 뒤에 (mtime 최신순 유지)
+  const sortGroup = (items, groupKey) => {
+    const saved = order[groupKey] || []
+    const idx = (id) => { const i = saved.indexOf(id); return i === -1 ? Infinity : i }
+    return [...items].sort((a, b) => idx(a.id) - idx(b.id))
+  }
+
+  // 트리 구성: 루트 → 하위 갈래 재귀 (depth 들여쓰기)
   const children = new Map()
   for (const d of docs) {
     if (d.parentId) {
@@ -20,12 +30,50 @@ async function refreshDocs(selectId) {
       children.get(d.parentId).push(d)
     }
   }
+  for (const [k, v] of children) children.set(k, sortGroup(v, k))
+  const siblingIds = (groupKey) =>
+    (groupKey ? (children.get(groupKey) || []) : roots).map((x) => x.id)
   docOrder = []
   const renderItem = (d, depth) => {
     docOrder.push(d.id)
     const el = document.createElement('div')
     el.className = 'doc-item' + (d.id === (selectId ?? currentDoc) ? ' active' : '')
     el.style.paddingLeft = `${10 + depth * 14}px`
+    const groupKey = d.parentId || ''
+
+    // ── 마우스 드래그로 같은 그룹 내 순서 조정 ──
+    el.draggable = true
+    el.addEventListener('dragstart', (e) => {
+      dragState = { id: d.id, group: groupKey }
+      el.classList.add('dragging')
+      e.dataTransfer.effectAllowed = 'move'
+    })
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging')
+      document.querySelectorAll('.doc-item').forEach((x) => x.classList.remove('drop-above', 'drop-below'))
+      dragState = null
+    })
+    el.addEventListener('dragover', (e) => {
+      if (!dragState || dragState.id === d.id || dragState.group !== groupKey) return
+      e.preventDefault()
+      const r = el.getBoundingClientRect()
+      const above = e.clientY < r.top + r.height / 2
+      el.classList.toggle('drop-above', above)
+      el.classList.toggle('drop-below', !above)
+    })
+    el.addEventListener('dragleave', () => el.classList.remove('drop-above', 'drop-below'))
+    el.addEventListener('drop', async (e) => {
+      if (!dragState || dragState.id === d.id || dragState.group !== groupKey) return
+      e.preventDefault()
+      const r = el.getBoundingClientRect()
+      const above = e.clientY < r.top + r.height / 2
+      const ids = siblingIds(groupKey).filter((x) => x !== dragState.id)
+      const at = ids.indexOf(d.id) + (above ? 0 : 1)
+      ids.splice(at, 0, dragState.id)
+      await window.jarvis.docs.setOrder(groupKey, ids)
+      dragState = null
+      refreshDocs()
+    })
     el.innerHTML = `${depth > 0 ? '<span class="tw">↳</span>' : ''}<span class="t"></span>` +
       `<button class="branch" title="갈래 만들기 — 이 문서에서 주제 분기">⑂</button>` +
       `<button class="del" title="삭제">✕</button>`
@@ -47,7 +95,8 @@ async function refreshDocs(selectId) {
     list.appendChild(el)
     for (const c of (children.get(d.id) || [])) renderItem(c, depth + 1)
   }
-  for (const d of docs.filter((x) => !x.parentId)) renderItem(d, 0)
+  const roots = sortGroup(docs.filter((x) => !x.parentId), '')
+  for (const d of roots) renderItem(d, 0)
   if (selectId) selectDoc(selectId)
 }
 
@@ -56,8 +105,30 @@ function showEmpty() {
   $('emptyState').style.display = 'flex'
 }
 
+async function refreshDocProject() {
+  if (!currentDoc) { $('docBar').hidden = true; return }
+  const info = await window.jarvis.docs.getProject(currentDoc)
+  const base = (info.effective || '').split('/').filter(Boolean).pop() || info.effective
+  $('docProj').textContent = info.isOwn ? `📁 ${base}` : `📁 전역 기본 (${base})`
+  $('docProj').classList.toggle('own', info.isOwn)
+  $('docProj').title = `작업 프로젝트: ${info.effective}\n클릭해서 이 문서 전용 프로젝트로 변경`
+  $('docProjClear').hidden = !info.isOwn
+  $('docBar').hidden = false
+}
+$('docProj').addEventListener('click', async () => {
+  if (!currentDoc) return
+  await window.jarvis.docs.pickProject(currentDoc)
+  refreshDocProject()
+})
+$('docProjClear').addEventListener('click', async () => {
+  if (!currentDoc) return
+  await window.jarvis.docs.clearProject(currentDoc)
+  refreshDocProject()
+})
+
 async function selectDoc(id) {
   currentDoc = id
+  refreshDocProject()
   const p = await window.jarvis.docs.path(id)
   const frame = $('docFrame')
   frame.src = `file://${encodeURI(p)}?t=${Date.now()}`

@@ -76,6 +76,26 @@ body {
 
 /* ── 메인 ── */
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#docBar {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--bg-1);
+  flex-shrink: 0;
+}
+#docProj {
+  border: 1px solid var(--border); background: var(--bg-2); color: var(--fg-2);
+  border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+  max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#docProj.own { color: var(--accent); border-color: var(--accent); }
+#docProj:hover { color: var(--fg-0); }
+#docProjClear {
+  border: none; background: transparent; color: var(--fg-2); cursor: pointer;
+  font-size: 11px; padding: 3px 6px; border-radius: 4px;
+}
+#docProjClear:hover { color: var(--rec); }
+.doc-item.dragging { opacity: 0.45; }
+.doc-item.drop-above { box-shadow: inset 0 2px 0 var(--accent); }
+.doc-item.drop-below { box-shadow: inset 0 -2px 0 var(--accent); }
 #docFrameWrap { flex: 1; position: relative; background: var(--bg); }
 #docFrame { width: 100%; height: 100%; border: none; background: #1b1a18; }
 #emptyState {
