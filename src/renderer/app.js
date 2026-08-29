@@ -10,21 +10,41 @@ async function refreshDocs(selectId) {
   const docs = await window.jarvis.docs.list()
   const list = $('docList')
   list.innerHTML = ''
+
+  // 트리 구성: 루트(mtime 최신순) → 하위 갈래 재귀 (depth 들여쓰기)
+  const children = new Map()
   for (const d of docs) {
+    if (d.parentId) {
+      if (!children.has(d.parentId)) children.set(d.parentId, [])
+      children.get(d.parentId).push(d)
+    }
+  }
+  const renderItem = (d, depth) => {
     const el = document.createElement('div')
     el.className = 'doc-item' + (d.id === (selectId ?? currentDoc) ? ' active' : '')
-    el.innerHTML = `<span class="t"></span><button class="del" title="삭제">✕</button>`
+    el.style.paddingLeft = `${10 + depth * 14}px`
+    el.innerHTML = `${depth > 0 ? '<span class="tw">↳</span>' : ''}<span class="t"></span>` +
+      `<button class="branch" title="갈래 만들기 — 이 문서에서 주제 분기">⑂</button>` +
+      `<button class="del" title="삭제">✕</button>`
     el.querySelector('.t').textContent = d.title
     el.addEventListener('click', () => selectDoc(d.id))
+    el.querySelector('.branch').addEventListener('click', (e) => {
+      e.stopPropagation()
+      openModal(d.id, d.title)
+    })
     el.querySelector('.del').addEventListener('click', async (e) => {
       e.stopPropagation()
-      if (!confirm(`"${d.title}" 문서를 삭제할까요?`)) return
+      const kids = children.get(d.id)?.length || 0
+      const warn = kids ? ` (하위 갈래 ${kids}개는 최상위로 이동)` : ''
+      if (!confirm(`"${d.title}" 문서를 삭제할까요?${warn}`)) return
       await window.jarvis.docs.remove(d.id)
       if (currentDoc === d.id) { currentDoc = null; showEmpty() }
       refreshDocs()
     })
     list.appendChild(el)
+    for (const c of (children.get(d.id) || [])) renderItem(c, depth + 1)
   }
+  for (const d of docs.filter((x) => !x.parentId)) renderItem(d, 0)
   if (selectId) selectDoc(selectId)
 }
 
@@ -45,6 +65,17 @@ async function selectDoc(id) {
   $('input').focus()
 }
 
+// 문서 안의 갈래/상위 링크 클릭 → 앱 선택 상태 동기화
+$('docFrame').addEventListener('load', () => {
+  try {
+    const file = decodeURI($('docFrame').contentWindow.location.pathname.split('/').pop() || '')
+    if (file && file.endsWith('.html') && file !== currentDoc) {
+      currentDoc = file
+      refreshDocs()
+    }
+  } catch { /* cross-origin 등 접근 불가 시 무시 */ }
+})
+
 function reloadFrame() {
   if (!currentDoc) return
   const frame = $('docFrame')
@@ -52,21 +83,32 @@ function reloadFrame() {
   frame.src = `${base}?t=${Date.now()}`
 }
 
-// ── 새 문서 모달 ──────────────────────────────────────────────────
-$('btnNewDoc').addEventListener('click', () => {
+// ── 새 문서 / 갈래 모달 ───────────────────────────────────────────
+let branchParent = null   // null = 최상위 문서, 값 있으면 해당 문서의 갈래
+function openModal(parentId, parentTitle) {
+  branchParent = parentId || null
+  document.querySelector('.modal-title').textContent =
+    branchParent ? `"${parentTitle}" 의 갈래 주제` : '새 주제 / 질문'
   $('modal').hidden = false
   $('modalInput').value = ''
   $('modalInput').focus()
-})
+}
+$('btnNewDoc').addEventListener('click', () => openModal(null, null))
 $('modalCancel').addEventListener('click', () => { $('modal').hidden = true })
 async function createDoc() {
   const title = $('modalInput').value.trim()
   if (!title) return
   $('modal').hidden = true
-  const { id } = await window.jarvis.docs.create(title)
-  await refreshDocs(id)
-  // 제목이 곧 첫 질문 — 바로 내용 생성 요청
-  sendMessage(`"${title}" 주제로 문서를 시작한다. 이 주제에 대해 아는 것을 정리해 문서를 채워줘.`)
+  if (branchParent) {
+    const { id } = await window.jarvis.docs.createBranch(branchParent, title)
+    await refreshDocs(id)
+    sendMessage(`상위 문서의 맥락을 읽고, 갈래 주제 "${title}"를 시작한다. 이 갈래에서 발전시킬 내용을 정리해 문서를 채워줘.`)
+  } else {
+    const { id } = await window.jarvis.docs.create(title)
+    await refreshDocs(id)
+    // 제목이 곧 첫 질문 — 바로 내용 생성 요청
+    sendMessage(`"${title}" 주제로 문서를 시작한다. 이 주제에 대해 아는 것을 정리해 문서를 채워줘.`)
+  }
 }
 $('modalOk').addEventListener('click', createDoc)
 $('modalInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') createDoc() })

@@ -50,6 +50,33 @@ function setConfig(patch) {
   return next
 }
 
+// ── 문서 트리 (갈래) — docs/.doctree.json: { childId: parentId } ──
+function treePath() { return path.join(docsDir(), '.doctree.json') }
+function readTree() { return readJson(treePath(), {}) }
+function writeTree(t) { writeJson(treePath(), t) }
+
+/** 상위 문서 HTML의 '갈래' 섹션에 하위 문서 링크 추가 (없으면 섹션 생성) */
+function addBranchLink(parentId, childId, childTitle) {
+  const pp = path.join(docsDir(), parentId)
+  if (!fs.existsSync(pp)) return
+  let html = fs.readFileSync(pp, 'utf8')
+  const li = `<li><a href="${childId}" style="color:#d99a3d">${childTitle}</a></li>`
+  if (html.includes('<ul id="branches">')) {
+    html = html.replace('<ul id="branches">', `<ul id="branches">\n${li}`)
+  } else {
+    const block = `<h2>갈래</h2>\n<ul id="branches">\n${li}\n</ul>\n`
+    html = html.includes('</body>') ? html.replace('</body>', `${block}</body>`) : html + block
+  }
+  fs.writeFileSync(pp, html)
+}
+function removeBranchLink(parentId, childId) {
+  const pp = path.join(docsDir(), parentId)
+  if (!fs.existsSync(pp)) return
+  const html = fs.readFileSync(pp, 'utf8')
+  const re = new RegExp(`\\s*<li><a href="${childId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>[^<]*</a></li>`, 'g')
+  fs.writeFileSync(pp, html.replace(re, ''))
+}
+
 // ── 문서 관리 ─────────────────────────────────────────────────────
 function slugify(title) {
   const base = title.trim().replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'doc'
@@ -68,15 +95,27 @@ function docTitle(file) {
 }
 function listDocs() {
   ensureDirs()
-  return fs.readdirSync(docsDir())
-    .filter((f) => f.endsWith('.html'))
+  const tree = readTree()
+  const files = new Set(fs.readdirSync(docsDir()).filter((f) => f.endsWith('.html')))
+  return [...files]
     .map((f) => {
       const st = fs.statSync(path.join(docsDir(), f))
-      return { id: f, title: docTitle(f), mtime: st.mtimeMs }
+      const parent = tree[f]
+      return {
+        id: f, title: docTitle(f), mtime: st.mtimeMs,
+        // 상위 문서가 삭제됐으면 루트로 취급
+        parentId: parent && files.has(parent) ? parent : null,
+      }
     })
     .sort((a, b) => b.mtime - a.mtime)
 }
-function skeletonHtml(title) {
+function skeletonHtml(title, parentId, parentTitle) {
+  const parentLink = parentId
+    ? `<p class="meta">↰ 상위 문서: <a href="${parentId}" style="color:#d99a3d">${parentTitle || parentId}</a></p>\n`
+    : ''
+  return baseSkeleton(title, parentLink)
+}
+function baseSkeleton(title, parentLink) {
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -89,7 +128,7 @@ function skeletonHtml(title) {
   .meta{color:#8d877c;font-size:12px}
 </style></head><body>
 <h1>${title}</h1>
-<p class="meta">Jarvis 문서 · 음성/텍스트 피드백으로 보강됩니다</p>
+${parentLink}<p class="meta">Jarvis 문서 · 음성/텍스트 피드백으로 보강됩니다</p>
 <p>(아직 내용이 없습니다 — 아래 입력창에 질문이나 지시를 보내면 채워집니다)</p>
 </body></html>\n`
 }
@@ -104,10 +143,14 @@ function findClaude() {
   return 'claude'
 }
 
-function systemPrompt(docPath) {
+function systemPrompt(docPath, parentPath) {
   return [
     '너는 "Jarvis"라는 로컬 소통창구 앱의 백엔드 에이전트다. 사용자와 음성/텍스트로 대화한다.',
     `이 대화의 살아있는 문서: ${docPath}`,
+    ...(parentPath ? [
+      `이 문서는 상위 문서의 '갈래'다 — 상위 문서: ${parentPath}`,
+      '상위 문서의 맥락을 이어받아 이 갈래의 주제를 더 깊게 발전시켜라. 상위 문서와 중복 서술하지 말 것.',
+    ] : []),
     '규칙:',
     '1) 사용자의 질문/피드백 내용을 반영해 위 HTML 문서를 직접 수정(Write/Edit)해 보강한다.',
     '   문서는 self-contained 한국어 HTML(다크 배경 유지)로, 대화가 쌓일수록 좋은 참조 문서가 되게 다듬어라.',
@@ -133,13 +176,16 @@ function runClaude(docId, message, sender) {
   if (claudeProc) return Promise.reject(new Error('이전 작업이 아직 실행 중입니다'))
   const cfg = getConfig()
   const docPath = path.join(docsDir(), docId)
+  const parentId = readTree()[docId]
+  const parentPath = parentId && fs.existsSync(path.join(docsDir(), parentId))
+    ? path.join(docsDir(), parentId) : null
   const sessions = readJson(SESSIONS_PATH, {})
   const prev = sessions[docId]
 
   const args = [
     '-p', message,
     '--output-format', 'stream-json', '--verbose',
-    '--append-system-prompt', systemPrompt(docPath),
+    '--append-system-prompt', systemPrompt(docPath, parentPath),
     '--dangerously-skip-permissions',
   ]
   if (prev) args.push('--resume', prev)
@@ -271,7 +317,17 @@ function registerIpc() {
   ipcMain.handle('docs:create', (_e, title) => {
     ensureDirs()
     const id = slugify(title)
-    fs.writeFileSync(path.join(docsDir(), id), skeletonHtml(title))
+    fs.writeFileSync(path.join(docsDir(), id), skeletonHtml(title, null, null))
+    return { id }
+  })
+  ipcMain.handle('docs:createBranch', (_e, { parentId, title }) => {
+    ensureDirs()
+    const id = slugify(title)
+    fs.writeFileSync(path.join(docsDir(), id), skeletonHtml(title, parentId, docTitle(parentId)))
+    const tree = readTree()
+    tree[id] = parentId
+    writeTree(tree)
+    addBranchLink(parentId, id, title)
     return { id }
   })
   ipcMain.handle('docs:delete', (_e, id) => {
@@ -280,6 +336,12 @@ function registerIpc() {
     const s = readJson(SESSIONS_PATH, {})
     delete s[id]
     writeJson(SESSIONS_PATH, s)
+    // 트리 정리: 본인 항목 제거 + 상위 문서의 갈래 링크 제거, 하위 갈래는 루트로 승격
+    const tree = readTree()
+    if (tree[id]) removeBranchLink(tree[id], id)
+    delete tree[id]
+    for (const k of Object.keys(tree)) if (tree[k] === id) delete tree[k]
+    writeTree(tree)
     return { ok: true }
   })
   ipcMain.handle('docs:path', (_e, id) => path.join(docsDir(), path.basename(id)))

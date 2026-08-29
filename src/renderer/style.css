@@ -55,12 +55,14 @@ body {
 .doc-item:hover { background: var(--bg-2); }
 .doc-item.active { background: var(--bg-3); color: var(--fg-0); }
 .doc-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
-.doc-item .del {
+.doc-item .tw { color: var(--fg-2); font-size: 11px; flex-shrink: 0; }
+.doc-item .del, .doc-item .branch {
   visibility: hidden; border: none; background: transparent; color: var(--fg-2);
-  cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px;
+  cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; flex-shrink: 0;
 }
-.doc-item:hover .del { visibility: visible; }
+.doc-item:hover .del, .doc-item:hover .branch { visibility: visible; }
 .doc-item .del:hover { color: var(--rec); }
+.doc-item .branch:hover { color: var(--accent); }
 
 .side-foot { border-top: 1px solid var(--border); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
 .proj { cursor: pointer; }

@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   docs: {
     list: () => ipcRenderer.invoke('docs:list'),
     create: (title) => ipcRenderer.invoke('docs:create', title),
+    createBranch: (parentId, title) => ipcRenderer.invoke('docs:createBranch', { parentId, title }),
     remove: (id) => ipcRenderer.invoke('docs:delete', id),
     path: (id) => ipcRenderer.invoke('docs:path', id),
     reveal: (id) => ipcRenderer.invoke('docs:reveal', id),
