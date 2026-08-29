@@ -261,9 +261,15 @@ function splitBlocks(md) {
   const blocks = []
   let cur = []
   let inFence = false
+  let detailsDepth = 0   // <details> 내부의 빈 줄에서는 블록을 자르지 않음 (아코디언 분리 버그 방지)
   for (const ln of lines) {
     if (/^```/.test(ln.trim())) { inFence = !inFence; cur.push(ln); continue }
-    if (!inFence && ln.trim() === '') {
+    if (!inFence) {
+      detailsDepth += (ln.match(/<details\b/gi) || []).length
+      detailsDepth -= (ln.match(/<\/details>/gi) || []).length
+      if (detailsDepth < 0) detailsDepth = 0
+    }
+    if (!inFence && detailsDepth === 0 && ln.trim() === '') {
       if (cur.length) { blocks.push(cur.join('\n')); cur = [] }
     } else {
       cur.push(ln)
