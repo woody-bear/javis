@@ -1310,6 +1310,19 @@ window.jarvis.events.onNotice((msg) => {
 })
 setInterval(drainAnalysisQueue, 30_000)
 
+// ── 🌙 아침 브리핑 — 야간 러너 결과 자동 표시 ──
+window.jarvis.events.onNightBriefing(async ({ date }) => {
+  await refreshDocs()
+  const docs = await window.jarvis.docs.list()
+  const brief = docs.find((d) => d.id === '야간-브리핑.md')
+  if (brief) {
+    await selectDoc(brief.id)
+    showGestureToast('🌙', `${date} 밤사이 작업 브리핑입니다`)
+    procNote('pl-text', `🌙 ${esc(date)} 야간 브리핑 — 개선 브랜치(night/${esc(date)})는 리뷰 후 머지하세요`)
+  }
+  window.jarvis.events.ackNightBriefing()
+})
+
 
 // ── 프로젝트 맵 — 전체 프로젝트·갈래 문서를 트리로 연결해 한눈에 ──────
 const MAP_NODE_W = 200

@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('jarvis', {
   events: {
     onAutoCreated: (cb) => ipcRenderer.on('docs:autocreated', (_e, list) => cb(list)),
     onNotice: (cb) => ipcRenderer.on('app:notice', (_e, msg) => cb(msg)),
+    onNightBriefing: (cb) => ipcRenderer.on('night:briefing', (_e, info) => cb(info)),
+    ackNightBriefing: () => ipcRenderer.invoke('night:ackBriefing'),
   },
   chat: {
     send: (docId, text) => ipcRenderer.invoke('chat:send', { docId, text }),

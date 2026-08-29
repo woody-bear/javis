@@ -44,6 +44,8 @@ function getConfig() {
     wakeMode: false,
     gestureMode: false,
     model: '',   // '' = Claude Code 기본 설정 따름 (전역 — 모든 문서·프로젝트 동일 적용)
+    nightEnabled: true,   // 야간 자율 개선 러너 (launchd 23:00)
+    nightModel: 'sonnet', // 야간 전용 모델 (비용 절약 기본값)
     ...readJson(CONFIG_PATH, {}),
   }
 }
@@ -595,6 +597,10 @@ function registerIpc() {
     }
   })
   ipcMain.handle('chat:busy', () => !!claudeProc)
+  ipcMain.handle('night:ackBriefing', () => {
+    try { fs.unlinkSync(path.join(HUB_DIR, 'night', 'unread')) } catch { /* noop */ }
+    return true
+  })
   ipcMain.handle('app:toggleFullscreen', () => {
     if (!win || win.isDestroyed()) return false
     const next = !win.isFullScreen()
@@ -693,6 +699,14 @@ app.whenReady().then(() => {
   ensureDirs()
   registerIpc()
   createWindow()
+  // 아침 브리핑: 야간 러너의 미확인 플래그 감지 → 렌더러에 알림
+  setTimeout(() => {
+    const flag = path.join(HUB_DIR, 'night', 'unread')
+    if (fs.existsSync(flag) && win && !win.isDestroyed()) {
+      const date = fs.readFileSync(flag, 'utf8').trim()
+      win.webContents.send('night:briefing', { date })
+    }
+  }, 2000)
   // 앱 시작 3초 후 + 주기적으로 workflow 프로젝트 스캔
   setTimeout(scanWorkflowProjects, 3000)
   setInterval(scanWorkflowProjects, SCAN_INTERVAL_MS)
