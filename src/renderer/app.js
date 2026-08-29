@@ -732,14 +732,32 @@ function navigateDoc(delta) {
   let idx = docOrder.indexOf(currentDoc)
   if (idx === -1) idx = delta > 0 ? -1 : 0
   const ni = Math.max(0, Math.min(docOrder.length - 1, idx + delta))
-  if (docOrder[ni] === currentDoc) return
+  if (docOrder[ni] === currentDoc) {
+    showGestureToast(delta < 0 ? '☝' : '👇', delta < 0 ? '맨 위입니다' : '맨 아래입니다')
+    return
+  }
+  showGestureToast(delta < 0 ? '☝' : '👇', delta < 0 ? '위로 이동' : '아래로 이동')
   tick()
   selectDoc(docOrder[ni])
 }
 
+// ── 제스처 인식 시각 피드백 ──────────────────────────────────────
+let gestureToastTimer = null
+function showGestureToast(icon, label) {
+  const el = $('gestureToast')
+  el.innerHTML = `<span class="gi">${icon}</span><span>${label}</span>`
+  el.hidden = false
+  el.classList.remove('pop')
+  void el.offsetWidth   // 애니메이션 재시작
+  el.classList.add('pop')
+  clearTimeout(gestureToastTimer)
+  gestureToastTimer = setTimeout(() => { el.hidden = true }, 950)
+}
+
 function navigateInto() {
   const child = docFirstChild[currentDoc]
-  if (!child) return   // 갈래 없음
+  if (!child) { showGestureToast('👉', '갈래 문서가 없습니다'); return }
+  showGestureToast('👉', '세부문서로 이동')
   tick()
   selectDoc(child)
 }
@@ -790,11 +808,19 @@ async function startGesture() {
   }
 
   gestureHits = 0
+  let handSeen = false
   gestureTimer = setInterval(() => {
     if (!gestureOn || recording || busy || wakeSttBusy) { gestureHits = 0; return }
     if (video.readyState < 2) return
     let result
     try { result = gestureRecognizer.recognizeForVideo(video, performance.now()) } catch { return }
+    const seen = !!(result && result.landmarks && result.landmarks.length)
+    if (seen !== handSeen) {
+      handSeen = seen
+      $('gestureStatus').textContent = seen
+        ? '✋ 손 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서'
+        : '대기 중 — ✊ 듣기 · ☝ 위/아래 이동 · 👉 오른쪽: 세부문서 진입'
+    }
     const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
     const lm = result && result.landmarks && result.landmarks[0]
     if (g && g.categoryName === 'Closed_Fist' && g.score >= GESTURE_SCORE) {
@@ -803,6 +829,7 @@ async function startGesture() {
       if (gestureHits >= GESTURE_HITS && Date.now() - gestureLastFire > GESTURE_COOLDOWN_MS) {
         gestureLastFire = Date.now()
         gestureHits = 0
+        showGestureToast('✊', '듣기 시작')
         ding()
         startRecording().catch(() => {})
       }

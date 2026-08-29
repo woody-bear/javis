@@ -76,6 +76,27 @@ body {
 
 /* ── 메인 ── */
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#gestureToast {
+  position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
+  z-index: 20; pointer-events: none;
+  background: color-mix(in srgb, var(--bg-1) 88%, transparent);
+  border: 1px solid var(--accent); border-radius: 30px;
+  padding: 8px 20px; font-size: 15px; font-weight: 700; color: var(--fg-0);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+  display: flex; align-items: center; gap: 8px; white-space: nowrap;
+}
+#gestureToast .gi { font-size: 20px; }
+@media (prefers-reduced-motion: no-preference) {
+  #gestureToast.pop { animation: gpop 0.9s ease-out; }
+  @keyframes gpop {
+    0% { opacity: 0; transform: translateX(-50%) scale(0.8); }
+    15% { opacity: 1; transform: translateX(-50%) scale(1.05); }
+    25% { transform: translateX(-50%) scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+}
+#main { position: relative; }
 #docBar {
   display: flex; align-items: center; gap: 4px;
   padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--bg-1);
