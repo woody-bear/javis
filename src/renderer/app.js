@@ -532,17 +532,12 @@ async function sendMessage(text) {
   if (!currentDoc) { alert('먼저 문서를 만들거나 선택하세요 (＋ 버튼)'); return }
   setBusy(true, 'Claude 작업 중… (ESC로 중단)')
   procReset()
-  procAppend('', `<span class="pl-tool">▶</span> ${esc(text)}`)
-  const reply = $('lastReply')
-  reply.style.color = ''
-  reply.textContent = `▶ 요청: ${text}`   // 인식/입력된 내용을 먼저 텍스트로 확인
-  reply.hidden = false
+  procAppend('pl-req', `▶ ${esc(text)}`)   // 인식/입력된 요청을 먼저 텍스트로 확인
   const res = await window.jarvis.chat.send(currentDoc, text)
   setBusy(false)
   reloadFrame()
   refreshDocs()
-  reply.textContent = `▶ 요청: ${text}\n${res.text || (res.ok ? '완료' : '실패')}`
-  if (!res.ok) reply.style.color = 'var(--rec)'
+  procNote(res.ok ? 'pl-done' : 'pl-err', esc(res.text || (res.ok ? '완료' : '실패')))
 }
 
 $('btnSend').addEventListener('click', () => {
@@ -575,6 +570,11 @@ function procAppend(cls, html) {
   log.scrollTop = log.scrollHeight
   // 라인 수 제한 (렌더 보호)
   while (log.childElementCount > 400) log.removeChild(log.firstChild)
+}
+function procNote(cls, html) {
+  $('procWrap').hidden = false
+  $('procLog').classList.remove('collapsed')
+  procAppend(cls, html)
 }
 function procReset() {
   $('procLog').innerHTML = ''
@@ -673,10 +673,7 @@ async function stopRecording(transcribeIt) {
     // 인식된 질문을 '요청:' 에코로 표시한 뒤 바로 실행
     sendMessage(res.text)
   } else if (!res.ok) {
-    const reply = $('lastReply')
-    reply.textContent = res.text
-    reply.style.color = 'var(--rec)'
-    reply.hidden = false
+    procNote('pl-err', esc(res.text))
   }
 }
 
@@ -746,6 +743,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return
   if (!$('modal').hidden) { $('modal').hidden = true; return }
   if (!$('mapView').hidden) { closeMap(); return }
+  if (document.body.classList.contains('doc-full')) { document.body.classList.remove('doc-full'); return }
   if (recording) { stopRecording(false); return }   // 녹음 취소 (전송 안 함)
   if (busy) {
     if (analysisQueue.length) {
@@ -1210,9 +1208,7 @@ async function drainAnalysisQueue() {
   setBusy(false)
   if (currentDoc === job.id) reloadFrame()
   refreshDocs()
-  const reply = $('lastReply')
-  reply.textContent = `▶ [자동 분석] ${job.name}\n${res.text || (res.ok ? '완료' : '실패')}`
-  reply.hidden = false
+  procNote(res.ok ? 'pl-done' : 'pl-err', `[자동 분석 완료] ${esc(job.name)} — ${esc(res.text || (res.ok ? '완료' : '실패'))}`)
   setTimeout(drainAnalysisQueue, 1500)
 }
 window.jarvis.events.onAutoCreated((list) => {
@@ -1221,9 +1217,7 @@ window.jarvis.events.onAutoCreated((list) => {
   drainAnalysisQueue()
 })
 window.jarvis.events.onNotice((msg) => {
-  const reply = $('lastReply')
-  reply.textContent = `ℹ ${msg}`
-  reply.hidden = false
+  procNote('pl-text', `ℹ ${esc(msg)}`)
 })
 setInterval(drainAnalysisQueue, 30_000)
 
@@ -1343,6 +1337,9 @@ function openMap() {
   renderMap()
 }
 function closeMap() { $('mapView').hidden = true }
+$('btnFull').addEventListener('click', () => {
+  document.body.classList.toggle('doc-full')
+})
 $('btnMap').addEventListener('click', openMap)
 $('mapClose').addEventListener('click', closeMap)
 $('mapBody').addEventListener('click', (e) => {

@@ -64,6 +64,12 @@
   - `5d1ba8e` 프로젝트별 jarvis/ 문서 저장
   - `6e41a4b` workflow 자동 스캔
   </details>
+- **사이드바 문서 이름 변경** — 항목의 ✎ 버튼 또는 제목 더블클릭 → 인라인 입력(Enter 저장 / Esc 취소). 파일 id는 그대로 두고 문서의 첫 H1(레거시 HTML은 `<title>`)만 교체하므로 세션·프로젝트·갈래 매핑이 유지된다.
+  <details><summary>변화 과정</summary>
+
+  - `c14282d` 문서 드래그 정렬 (사이드바 항목 조작의 시작)
+  - `377dd35` 사이드바 문서 이름 변경 — ✎ 버튼/더블클릭 인라인 편집, H1만 교체(파일 id·세션 유지)
+  </details>
 - **기능 보드 규칙 (완성/추가/개선 3섹션 + git 기반 변화 과정)** — 시스템 프롬프트로 강제되어 모든 문서가 같은 구조를 유지.
   <details><summary>변화 과정</summary>
 
@@ -72,14 +78,16 @@
 
 ## ➕ 추가할 기능
 
-- barge-in — 작업 중 말 끊기/새 명령으로 대체 (README 로드맵)
-- 작업계획 파일(speckit) 전용 뷰·음성 라우팅 (README 로드맵)
-- 갈래 문서의 변경 요약을 상위 문서에 자동 반영(롤업)
-- 문서 내 검색 / 전체 문서 검색
-- 작업 로그 → git 커밋 자동 생성(옵션)
+-   barge-in — 작업 중 말 끊기/새 명령으로 대체 (README 로드맵)
+-   작업계획 파일(speckit) 전용 뷰·음성 라우팅 (README 로드맵)
+-   갈래 문서의 변경 요약을 상위 문서에 자동 반영(롤업)
+-   문서 내 검색 / 전체 문서 검색
+-   작업 로그 → git 커밋 자동 생성(옵션)
+-   사이드바·프로젝트 맵에 git/GitHub 연결 상태 뱃지 표시 (🟢 원격 연결 / 🟡 로컬만 / 🔴 없음) + 미연결 프로젝트 원클릭 `gh repo create`
 
 ## 🔧 개선할 기능
 
+- **이름 변경 시 파일명 동기화 옵션** — 현재는 제목(H1)만 바뀌고 파일명(`jarvis.md` 등)은 유지. 원하면 `renameDocId()`로 파일명까지 함께 바꾸는 옵션 추가 가능(갈래 링크·세션 매핑 일괄 갱신 로직은 이미 있음).
 - **맵 제스처 확장** — 현재 맵에서 ✊는 항상 첫 번째 프로젝트로만 이동. ☝👇로 맵 안에서 프로젝트를 하이라이트한 뒤 ✊로 선택하도록 확장하면 어떤 프로젝트든 손만으로 진입 가능.
 - **README·`main.js` 헤더 주석 갱신** — 아직 "HTML 문서 / `say -v Yuna` 낭독 / `~/JarvisHub/docs`" 기준. 현재는 MD + 프로젝트별 `jarvis/` 저장 + TTS 제거 상태.
 - **죽은 코드 정리** — `speak()`·`sayProc`·`config.voice` 는 62e9c86 이후 호출되지 않음. `tts:stop` IPC도 함께 정리.
@@ -141,7 +149,28 @@ jarvis/
 - 전제: 로그인된 `claude` CLI, `brew install whisper-cpp`, `~/JarvisHub/models/ggml-small-q8_0.bin`
 - ⚠️ `--dangerously-skip-permissions` 로 실행되므로 신뢰하는 프로젝트에서만 연결
 
+## 프로젝트 GitHub 연결 현황 (2026-08-29 점검)
+
+`docs/.docprojects.json`에 연결된 7개 프로젝트를 `git remote` · `gh repo list`(계정 woody-bear)로 확인.
+
+| 문서 | 프로젝트 | git | GitHub 원격 | 상태 |
+|------|----------|-----|-------------|------|
+| 추세추종프로젝트 | `trading_view` | ✅ 440 커밋 | ✅ `woody-bear/trading_view` (private) | 🟢 정상 연결 — origin/main과 동기화(0 ahead/0 behind), 미커밋 1건(`jarvis/`) |
+| jarvis | `jarvis` | ✅ 23 커밋 | ❌ 원격 없음 | 🟡 로컬 git만 — GitHub에 저장소 없음 |
+| 인터벌러너 | `Intervelrunner` | ⚠️ 1 커밋(Initial) | ❌ 원격 없음 | 🟡 로컬 git만 — 미커밋 17건(소스 대부분) |
+| ai_helper | `ai_helper` | ❌ | ❌ | 🔴 git 저장소 아님 |
+| intervel | `intervel` | ❌ | ❌ | 🔴 git 저장소 아님 |
+| intervel-web | `intervel-web` | ❌ | ❌ | 🔴 git 저장소 아님 |
+| keyboardwarrior | `keyboardwarrior` | ❌ | ❌ | 🔴 git 저장소 아님 |
+
+- GitHub에 연결된 프로젝트는 **trading_view 1개뿐**. 나머지 6개는 GitHub 저장소 자체가 없음(계정의 기존 저장소 목록에도 해당 이름 없음).
+- 다음 단계 제안: ① `jarvis`·`Intervelrunner` → `gh repo create woody-bear/<이름> --private --source . --push` ② 나머지 4개 → `git init` 후 동일. (실행은 요청 시 진행 — 외부 공개 작업이라 확인 후 수행)
+
 ## 작업 로그
+
+- **2026-08-29** — 사이드바 문서 이름 변경 기능 구현(커밋 `377dd35`). `main.js` `docs:rename` IPC(H1/`<title>` 교체), `preload.js` `docs.rename`, `app.js` ✎ 버튼·더블클릭 인라인 편집(편집 중 드래그/선택 비활성), `style.css` 입력창 스타일.
+
+- **2026-08-29** — 연결된 7개 프로젝트의 git/GitHub 연결 상태 점검 → "프로젝트 GitHub 연결 현황" 섹션 추가. 결과: GitHub 연결 1(trading_view) / 로컬 git만 2(jarvis, Intervelrunner) / git 없음 4.
 
 - **2026-08-29** — 프로젝트 맵이 열린 상태에서 ✊ 주먹 제스처 → 첫 번째 프로젝트(정렬 1순위 루트 문서)로 이동하고 맵을 닫는 기능 추가. `app.js`: `mapRoots`(맵/사이드바 정렬 순서 루트 id) · `mapSelectFirst()` · 제스처 루프에 맵 열림+✊ 분기(작업 중에도 동작). 커밋 `6945994`.
 - **2026-08-29** — 인터벌러너·추세추종프로젝트 문서를 keyboardwarrior/intervel-web과 같은 기능 보드 형식으로 재정리. `Intervelrunner/jarvis/인터벌러너.md`: 일반 이론 문서 → 워치·iOS 코드 분석(완성 9건, git 커밋이 1개뿐이라 변화 과정은 파일 수정일 기준). `trading_view/jarvis/추세추종프로젝트.md`: 기존 분석 14개 절은 유지하고 상단에 완성 21건(440커밋 기반 해시 연결)·추가 9·개선 8 신설.

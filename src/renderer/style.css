@@ -242,6 +242,19 @@ body {
 .pl-line.pl-text { color: var(--fg-2); }
 .pl-line.pl-result { color: var(--fg-2); opacity: 0.85; }
 .pl-line.pl-err { color: var(--rec); }
+.pl-line.pl-done { color: #5cb885; }
+.pl-line.pl-req { color: var(--fg-0); font-weight: 600; }
+/* 문서 전체 화면 — 사이드바·작업패널·입력창 숨김 */
+body.doc-full #sidebar,
+body.doc-full #procWrap,
+body.doc-full #activity,
+body.doc-full #composer { display: none !important; }
+#btnFull {
+  border: 1px solid var(--border); background: var(--bg-2); color: var(--fg-1);
+  border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; line-height: 1;
+}
+#btnFull:hover { color: var(--accent); border-color: var(--accent); }
+body.doc-full #btnFull { color: var(--accent); border-color: var(--accent); }
 
 #activity {
   display: flex; align-items: center; gap: 8px;
@@ -279,11 +292,6 @@ body {
   font-size: 16px; font-weight: 800; cursor: pointer;
 }
 #btnSend:disabled { opacity: 0.35; cursor: not-allowed; }
-#lastReply {
-  padding: 8px 16px 12px; font-size: 12px; color: var(--fg-1);
-  background: var(--bg-1); border-top: 1px dashed var(--border);
-  white-space: pre-line; max-height: 120px; overflow-y: auto;
-}
 
 /* ── 모달 ── */
 #modal {
