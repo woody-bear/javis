@@ -1065,8 +1065,8 @@ async function startGesture() {
       for (let i = 0; i < numHands; i += 1) {
         const top = result.gestures[i] && result.gestures[i][0]
         const label = handed[i] && handed[i][0] ? handed[i][0].categoryName : ''
-        // 비미러 원본 프레임: 라벨 'Left' = 사용자의 오른손
-        const userHand = label === 'Left' ? 'right' : 'left'
+        // 실측 보정(2026-08-30): 이 환경에선 라벨이 사용자 기준과 일치 — 'Left' = 왼손
+        const userHand = label === 'Left' ? 'left' : 'right'
         if (top && top.score >= GESTURE_SCORE) hands[userHand] = top.categoryName
       }
       const combo = hands.left && hands.right ? `${hands.left}+${hands.right}` : null
