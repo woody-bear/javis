@@ -104,7 +104,7 @@ function listDocs() {
       const st = fs.statSync(path.join(docsDir(), f))
       const parent = tree[f]
       return {
-        id: f, title: docTitle(f), mtime: st.mtimeMs,
+        id: f, title: docTitle(f), mtime: st.mtimeMs, birthtime: st.birthtimeMs,
         // 상위 문서가 삭제됐으면 루트로 취급
         parentId: parent && files.has(parent) ? parent : null,
       }

@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id)
 let currentDoc = null
 let recording = false
 let busy = false
+let docOrder = []   // 사이드바 렌더 순서 (제스처 위/아래 이동용)
 
 // ── 문서 목록 ─────────────────────────────────────────────────────
 async function refreshDocs(selectId) {
@@ -19,7 +20,9 @@ async function refreshDocs(selectId) {
       children.get(d.parentId).push(d)
     }
   }
+  docOrder = []
   const renderItem = (d, depth) => {
+    docOrder.push(d.id)
     const el = document.createElement('div')
     el.className = 'doc-item' + (d.id === (selectId ?? currentDoc) ? ' active' : '')
     el.style.paddingLeft = `${10 + depth * 14}px`
@@ -488,6 +491,50 @@ let gestureTimer = null
 let gestureHits = 0
 let gestureLastFire = 0
 
+/** 목록 이동 피드백용 짧은 틱 사운드 */
+function tick() {
+  try {
+    const ac = new AudioContext()
+    const o = ac.createOscillator(); const g = ac.createGain()
+    o.frequency.value = 520
+    g.gain.setValueAtTime(0.06, ac.currentTime)
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.09)
+    o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.1)
+    setTimeout(() => ac.close(), 200)
+  } catch { /* noop */ }
+}
+
+function navigateDoc(delta) {
+  if (!docOrder.length) return
+  let idx = docOrder.indexOf(currentDoc)
+  if (idx === -1) idx = delta > 0 ? -1 : 0
+  const ni = Math.max(0, Math.min(docOrder.length - 1, idx + delta))
+  if (docOrder[ni] === currentDoc) return
+  tick()
+  selectDoc(docOrder[ni])
+}
+
+/** 손 랜드마크로 '검지만 편 손' 방향 판정 → 'up' | 'down' | null */
+function pointingDir(lm) {
+  const w = lm[0]
+  const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+  // 검지가 펴져 있고 (끝이 두 번째 관절보다 손목에서 멀리)
+  if (d(lm[8], w) < d(lm[6], w) * 1.05) return null
+  // 중지·약지·소지는 접혀 있어야 (주먹/보자기와 구분)
+  const folded = (tip, pip) => d(tip, w) < d(pip, w)
+  if (!folded(lm[12], lm[10]) || !folded(lm[16], lm[14]) || !folded(lm[20], lm[18])) return null
+  // 수직 방향성: 검지 MCP→끝 벡터가 충분히 세로여야
+  const dy = lm[8].y - lm[5].y
+  const dx = Math.abs(lm[8].x - lm[5].x)
+  if (Math.abs(dy) < 0.12 || dx > Math.abs(dy)) return null
+  return dy < 0 ? 'up' : 'down'   // 화면 좌표 y는 아래로 증가
+}
+
+const NAV_COOLDOWN_MS = 750
+let navHits = 0
+let navLastDir = null
+let navLastFire = 0
+
 async function startGesture() {
   if (gestureOn) return
   $('gestureStatus').textContent = '카메라·모델 로딩 중…'
@@ -515,8 +562,10 @@ async function startGesture() {
     let result
     try { result = gestureRecognizer.recognizeForVideo(video, performance.now()) } catch { return }
     const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
+    const lm = result && result.landmarks && result.landmarks[0]
     if (g && g.categoryName === 'Closed_Fist' && g.score >= GESTURE_SCORE) {
       gestureHits += 1
+      navHits = 0
       if (gestureHits >= GESTURE_HITS && Date.now() - gestureLastFire > GESTURE_COOLDOWN_MS) {
         gestureLastFire = Date.now()
         gestureHits = 0
@@ -525,11 +574,20 @@ async function startGesture() {
       }
     } else {
       gestureHits = 0
+      // ☝ 검지 위/아래 — 문서 목록 한 칸 이동
+      const dir = lm ? pointingDir(lm) : null
+      if (dir && dir === navLastDir) navHits += 1
+      else { navHits = dir ? 1 : 0; navLastDir = dir }
+      if (dir && navHits >= 2 && Date.now() - navLastFire > NAV_COOLDOWN_MS) {
+        navLastFire = Date.now()
+        navHits = 0
+        navigateDoc(dir === 'up' ? -1 : 1)
+      }
     }
   }, GESTURE_FPS_MS)
 
   gestureOn = true
-  $('gestureStatus').textContent = '대기 중 — 카메라에 ✊ 주먹을 보이면 듣기 시작'
+  $('gestureStatus').textContent = '대기 중 — ✊ 주먹: 듣기 시작 · ☝ 검지 위/아래: 문서 이동'
 }
 
 async function stopGesture() {
@@ -555,5 +613,15 @@ $('chkGesture').addEventListener('change', async (e) => {
 })
 
 // init
-refreshDocs()
+async function initDocs() {
+  await refreshDocs()
+  if (currentDoc) return
+  const docs = await window.jarvis.docs.list()
+  if (docs.length) {
+    // '처음에 만든' 문서 = 생성 시각이 가장 오래된 문서
+    const first = docs.reduce((a, b) => ((a.birthtime ?? a.mtime) <= (b.birthtime ?? b.mtime) ? a : b))
+    selectDoc(first.id)
+  }
+}
+initDocs()
 loadConfig()
