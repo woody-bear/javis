@@ -207,6 +207,7 @@ function reloadFrame() {
 let markedMod = null
 let mdBlocks = []          // 현재 문서의 블록(원문 마크다운) 배열
 let mdEditing = false
+let blockDrag = null       // { from } — 블록 드래그 이동 상태
 
 async function getMarked() {
   if (!markedMod) {
@@ -277,6 +278,48 @@ function renderBlock(marked, blk, i) {
   acts.innerHTML = `<button class="a-md" title="마크다운 원문으로 편집">‹›</button>` +
     `<button class="a-add" title="아래에 블록 추가">＋</button><button class="a-del" title="블록 삭제">✕</button>`
   el.appendChild(acts)
+
+  // ── 노션식 블록 드래그 이동 (좌측 ⋮⋮ 핸들) ──
+  const handle = document.createElement('div')
+  handle.className = 'blk-handle'
+  handle.title = '드래그해서 블록 이동'
+  handle.textContent = '⋮⋮'
+  handle.draggable = true
+  el.prepend(handle)
+  handle.addEventListener('dragstart', (e) => {
+    if (mdEditing) { e.preventDefault(); return }
+    blockDrag = { from: i }
+    el.classList.add('dragging')
+    e.dataTransfer.effectAllowed = 'move'
+  })
+  handle.addEventListener('dragend', () => {
+    el.classList.remove('dragging')
+    document.querySelectorAll('.blk').forEach((x) => x.classList.remove('drop-above', 'drop-below'))
+    blockDrag = null
+  })
+  el.addEventListener('dragover', (e) => {
+    if (!blockDrag || blockDrag.from === i) return
+    e.preventDefault()
+    const r = el.getBoundingClientRect()
+    const above = e.clientY < r.top + r.height / 2
+    el.classList.toggle('drop-above', above)
+    el.classList.toggle('drop-below', !above)
+  })
+  el.addEventListener('dragleave', () => el.classList.remove('drop-above', 'drop-below'))
+  el.addEventListener('drop', async (e) => {
+    if (!blockDrag || blockDrag.from === i) return
+    e.preventDefault()
+    const r = el.getBoundingClientRect()
+    const above = e.clientY < r.top + r.height / 2
+    const from = blockDrag.from
+    blockDrag = null
+    const [moved] = mdBlocks.splice(from, 1)
+    let at = i + (above ? 0 : 1)
+    if (from < i) at -= 1
+    mdBlocks.splice(at, 0, moved)
+    await saveBlocks()
+    renderMd(currentDoc, true)
+  })
 
   let mode = null   // 'wysiwyg' | 'raw'
 
