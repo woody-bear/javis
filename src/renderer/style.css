@@ -131,6 +131,8 @@ body {
 }
 .blk { position: relative; border-radius: 8px; padding: 2px 10px; margin: 2px -10px; cursor: text; }
 .blk:hover { background: var(--bg-1); }
+.blk.editing { background: var(--bg-1); outline: 1px solid var(--accent); }
+.blk-body[contenteditable="true"] { outline: none; min-height: 24px; caret-color: var(--accent); }
 .blk:hover .blk-acts { visibility: visible; }
 .blk-acts {
   visibility: hidden; position: absolute; right: 4px; top: 4px; display: flex; gap: 2px;

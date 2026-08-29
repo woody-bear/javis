@@ -252,17 +252,57 @@ async function renderMdAndEdit(idx) {
 function renderBlock(marked, blk, i) {
   const el = document.createElement('div')
   el.className = 'blk'
-  el.innerHTML = marked.parse(blk)
+  const body = document.createElement('div')
+  body.className = 'blk-body'
+  body.innerHTML = marked.parse(blk)
+  el.appendChild(body)
   const acts = document.createElement('div')
   acts.className = 'blk-acts'
-  acts.innerHTML = `<button class="a-add" title="아래에 블록 추가">＋</button><button class="a-del" title="블록 삭제">✕</button>`
+  acts.innerHTML = `<button class="a-md" title="마크다운 원문으로 편집">‹›</button>` +
+    `<button class="a-add" title="아래에 블록 추가">＋</button><button class="a-del" title="블록 삭제">✕</button>`
   el.appendChild(acts)
 
-  const startEdit = () => {
+  let mode = null   // 'wysiwyg' | 'raw'
+
+  // ── 노션식 그 자리 편집: 렌더된 모습 그대로 contenteditable ──
+  const finishWysiwyg = async (save) => {
+    if (mode !== 'wysiwyg') return
+    mode = null
+    mdEditing = false
+    body.contentEditable = 'false'
+    el.classList.remove('editing')
+    if (save) {
+      const td = await getTurndown()
+      const md = td.turndown(body.innerHTML).replace(/\s+$/, '')
+      if (md.trim() === '') mdBlocks.splice(i, 1)
+      else mdBlocks[i] = md
+      await saveBlocks()
+    }
+    renderMd(currentDoc, true)
+    refreshDocs()
+  }
+  const startWysiwyg = () => {
     if (mdEditing) return
     mdEditing = true
+    mode = 'wysiwyg'
+    el.classList.add('editing')
+    body.contentEditable = 'true'
+    body.focus()
+    body.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); finishWysiwyg(true) }
+      if (e.key === 'Escape') { e.stopPropagation(); finishWysiwyg(false) }
+    })
+    body.addEventListener('blur', () => finishWysiwyg(true), { once: true })
+  }
+
+  // ── 마크다운 원문 편집 (‹› 버튼, 새 빈 블록) ──
+  const startRaw = () => {
+    if (mdEditing) return
+    mdEditing = true
+    mode = 'raw'
     const ta = document.createElement('textarea')
     ta.value = mdBlocks[i]
+    ta.placeholder = '마크다운 입력…'
     el.innerHTML = ''
     el.appendChild(ta)
     const hint = document.createElement('div')
@@ -278,7 +318,8 @@ function renderBlock(marked, blk, i) {
       ta.style.height = `${Math.max(ta.scrollHeight + 4, 44)}px`
     })
     const finish = async (save) => {
-      if (!mdEditing) return
+      if (mode !== 'raw') return
+      mode = null
       mdEditing = false
       if (save) {
         const v = ta.value.replace(/\s+$/, '')
@@ -289,7 +330,7 @@ function renderBlock(marked, blk, i) {
         mdBlocks.splice(i, 1)   // 새로 추가했다 취소한 빈 블록 정리
       }
       renderMd(currentDoc, true)
-      refreshDocs()   // 제목(# 헤딩) 수정 반영
+      refreshDocs()
     }
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); finish(true) }
@@ -298,9 +339,12 @@ function renderBlock(marked, blk, i) {
     ta.addEventListener('blur', () => finish(true))
   }
 
-  el.addEventListener('jarvis-edit', startEdit)
+  el.addEventListener('jarvis-edit', () => {
+    if ((mdBlocks[i] || '').trim() === '') startRaw()
+    else startWysiwyg()
+  })
   el.addEventListener('click', (e) => {
-    // 링크 클릭: 문서 링크는 앱 내 이동, 외부 링크는 무시
+    if (mdEditing) return   // 편집 중 클릭은 캐럿 이동
     const a = e.target.closest('a')
     if (a) {
       e.preventDefault()
@@ -310,7 +354,11 @@ function renderBlock(marked, blk, i) {
     }
     if (e.target.closest('.blk-acts')) return
     if (e.target.closest('summary')) return   // details 접기/펼치기는 그대로
-    startEdit()
+    startWysiwyg()
+  })
+  acts.querySelector('.a-md').addEventListener('click', (e) => {
+    e.stopPropagation()
+    startRaw()
   })
   acts.querySelector('.a-add').addEventListener('click', (e) => {
     e.stopPropagation()
@@ -326,6 +374,21 @@ function renderBlock(marked, blk, i) {
     renderMd(currentDoc, true)
   })
   return el
+}
+
+// 블록 저장용 HTML→MD 변환기 (WYSIWYG 편집 결과를 마크다운 원본으로 역변환)
+let turndownMod = null
+async function getTurndown() {
+  if (!turndownMod) {
+    const [{ default: TurndownService }, gfmMod] = await Promise.all([
+      import('./vendor/turndown.es.js'),
+      import('./vendor/turndown-gfm.es.js'),
+    ])
+    turndownMod = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
+    turndownMod.use(gfmMod.gfm)
+    turndownMod.keep(['details', 'summary'])
+  }
+  return turndownMod
 }
 
 // ── 새 문서 / 갈래 모달 ───────────────────────────────────────────
