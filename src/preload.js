@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('jarvis', {
     reveal: (id) => ipcRenderer.invoke('docs:reveal', id),
     rename: (id, title) => ipcRenderer.invoke('docs:rename', { id, title }),
   },
+  app: {
+    toggleFullscreen: () => ipcRenderer.invoke('app:toggleFullscreen'),
+  },
   events: {
     onAutoCreated: (cb) => ipcRenderer.on('docs:autocreated', (_e, list) => cb(list)),
     onNotice: (cb) => ipcRenderer.on('app:notice', (_e, msg) => cb(msg)),

@@ -1108,6 +1108,15 @@ async function startGesture() {
           document.body.classList.toggle('doc-full')
           showGestureToast('✊🖐', document.body.classList.contains('doc-full') ? '문서 전체 화면' : '전체 화면 종료')
         }
+      } else if (combo === 'Open_Palm+Open_Palm') {    // 🖐🖐 — 앱(창) 전체 화면 토글
+        comboHits += 1
+        if (comboHits >= GESTURE_HITS && Date.now() - comboLastFire > 2000) {
+          comboLastFire = Date.now()
+          comboHits = 0
+          window.jarvis.app.toggleFullscreen().then((on) => {
+            showGestureToast('🖐🖐', on ? '앱 전체 화면' : '앱 전체 화면 해제')
+          })
+        }
       } else if (combo === 'Closed_Fist+Closed_Fist') { // ✊✊ — 전체 화면 종료
         comboHits += 1
         if (comboHits >= GESTURE_HITS && Date.now() - comboLastFire > 2000) {

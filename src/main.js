@@ -595,6 +595,12 @@ function registerIpc() {
     }
   })
   ipcMain.handle('chat:busy', () => !!claudeProc)
+  ipcMain.handle('app:toggleFullscreen', () => {
+    if (!win || win.isDestroyed()) return false
+    const next = !win.isFullScreen()
+    win.setFullScreen(next)
+    return next
+  })
   ipcMain.handle('chat:abort', () => {
     if (!claudeProc) return false
     const proc = claudeProc
