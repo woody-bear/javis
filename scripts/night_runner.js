@@ -208,7 +208,7 @@ function writeBriefing(results) {
   const section = [
     `## 🌙 ${DATE} 야간 브리핑 — 개선 아이디어`,
     '',
-    `💡 아이디어 ${ideaCnt}건 · 없음 ${results.filter((r) => r.status === 'none').length} · 스킵 ${results.filter((r) => r.status === 'skip').length} · 실패 ${results.filter((r) => r.status === 'fail').length} — _코드는 수정하지 않았습니다. 🚀 착수를 누르면 메인 문서 "➕ 추가할 기능"에 등재됩니다._`,
+    `💡 아이디어 ${ideaCnt}건 · 없음 ${results.filter((r) => r.status === 'none').length} · 스킵 ${results.filter((r) => r.status === 'skip').length} · 실패 ${results.filter((r) => r.status === 'fail').length} — _코드는 수정하지 않았습니다. 🚀 착수를 누르면 등재 후 개선 작업이 바로 시작됩니다(🔴 게이트 항목은 등재만)._`,
     '',
     ...lines,
     ...(recoLines.length ? ['', '### 🧩 도구 추천 (검토 후 설치/거부)', '', ...recoLines] : []),
@@ -218,8 +218,9 @@ function writeBriefing(results) {
   let doc = ''
   if (fs.existsSync(BRIEF_DOC)) doc = fs.readFileSync(BRIEF_DOC, 'utf8')
   else doc = `# 야간 브리핑\n\n> 매일 밤 프로젝트를 읽고 🧭 목적에 기여하는 개선 아이디어를 제안합니다 — 코드는 수정하지 않으며, 아이디어는 매일 달라집니다\n\n`
-  // H1 헤더 바로 뒤(첫 빈 줄 다음)에 최신 섹션 prepend
-  const idx = doc.indexOf('\n## ')
+  // 상단 고정 섹션(✅ 완성된 기능 · ➕ 추가할 기능 · 🔧 개선할 기능)은 건너뛰고, 첫 날짜 섹션(## 🌙 / ## 🔭) 앞에 최신 섹션 prepend
+  const dated = /\n## (?:🌙|🔭) /.exec(doc)
+  const idx = dated ? dated.index : -1
   doc = idx === -1 ? doc.replace(/\s*$/, '\n\n') + section : doc.slice(0, idx + 1) + section + doc.slice(idx + 1)
   fs.writeFileSync(BRIEF_DOC, doc)
 

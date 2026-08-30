@@ -472,14 +472,19 @@ function renderBlock(marked, blk, i) {
     if (a) {
       e.preventDefault()
       const href = a.getAttribute('href') || ''
+      if (a.classList.contains('link-busy')) return   // 처리 중 재클릭 무시
       if (href.startsWith('jarvis-reco://')) {
         const m = /^jarvis-reco:\/\/(approve|reject)\/(.+)$/.exec(href)
-        if (m) resolveReco(decodeURIComponent(m[2]), m[1])
+        if (m) { linkBusy(a, true); resolveReco(decodeURIComponent(m[2]), m[1]).finally(() => linkBusy(a, false)) }
         return
       }
       if (href.startsWith('jarvis-bench://')) {
         const m = /^jarvis-bench:\/\/(accept|hold)\/(.+)$/.exec(href)
-        if (m) resolveBench(decodeURIComponent(m[2]), m[1])
+        if (m) { linkBusy(a, true); resolveBench(decodeURIComponent(m[2]), m[1]).finally(() => linkBusy(a, false)) }
+        return
+      }
+      if (href.startsWith('jarvis-')) {   // 미래 버전의 버튼 — 구버전 앱 안내
+        showLaunchPopup({ icon: '🔄', title: '앱 업데이트 필요', lines: ['이 버튼은 현재 설치된 앱보다 새 기능입니다.', '앱을 최신 빌드로 교체한 뒤 다시 눌러주세요.'] })
         return
       }
       if (href.endsWith('.md') || href.endsWith('.html')) selectDoc(decodeURI(href))
@@ -1360,9 +1365,51 @@ async function resolveReco(id, action) {
   reloadFrame()   // 브리핑 라인 상태 갱신 반영
 }
 
+function linkBusy(a, on) {
+  try { a.classList.toggle('link-busy', on) } catch { /* iframe 재로드로 사라졌으면 무시 */ }
+}
+
+/** 🚀 착수 등 반응 팝업 — 아이콘 발사 애니메이션 + 언제 실행되는지 안내 */
+function showLaunchPopup({ icon, title, lines }) {
+  document.getElementById('launchPop')?.remove()
+  const el = document.createElement('div')
+  el.id = 'launchPop'
+  el.innerHTML = `<div class="launch-card"><div class="launch-icon">${esc(icon)}</div>` +
+    `<p class="launch-title">${esc(title)}</p>` +
+    lines.map((l) => `<p class="launch-line">${esc(l)}</p>`).join('') +
+    `<div class="modal-actions"><button class="primary" id="launchOk">확인</button></div></div>`
+  document.body.appendChild(el)
+  const close = () => el.remove()
+  el.addEventListener('click', (e) => { if (e.target === el) close() })
+  el.querySelector('#launchOk').addEventListener('click', close)
+  setTimeout(() => { if (document.getElementById('launchPop') === el) close() }, 12_000)
+}
+
 async function resolveBench(id, action) {
   const res = await window.jarvis.bench.resolve(id, action)
   procNote(res.ok ? 'pl-done' : 'pl-err', `🔭 ${esc(res.msg || '')}`)
+  if (res.ok && action === 'accept') {
+    if (res.queue) {
+      const waiting = analysisQueue.length + (busy ? 1 : 0)
+      analysisQueue.push(res.queue)
+      showLaunchPopup({
+        icon: '🚀', title: `${id} 착수!`,
+        lines: [`"${res.title}"`, `메인 문서 '➕ 추가할 기능'에 등재했습니다.`,
+          waiting ? `개선 작업은 진행 중인 작업 ${waiting}건이 끝나는 대로 자동 시작됩니다.` : '개선 작업을 지금 바로 시작합니다 — 진행 상황은 하단 로그에 표시됩니다.',
+          '완료되면 결과가 메인 문서 작업 로그에 기록됩니다.'],
+      })
+      drainAnalysisQueue()
+    } else {
+      showLaunchPopup({
+        icon: '🔴', title: `${id} 등재됨 — 사용자 확정 필요`,
+        lines: [`"${res.title}"`, `메인 문서 '➕ 추가할 기능'에 등재했습니다.`,
+          res.gate ? `확정 게이트: ${res.gate}` : '확정 게이트 대상입니다.',
+          '자동으로 실행되지 않습니다 — 규칙 문서의 확정 절차(예: "확정 ' + id + '") 후 주간 작업으로 진행하세요.'],
+      })
+    }
+  } else if (res.ok && action === 'hold') {
+    showLaunchPopup({ icon: '⏸', title: `${id} 보류`, lines: [`"${res.title || ''}"`, '언제든 브리핑에서 다시 착수할 수 있습니다.'] })
+  }
   reloadFrame()
 }
 

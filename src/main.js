@@ -658,7 +658,7 @@ function registerIpc() {
     const tree = readTree()
     let docId = null
     for (const [d, pp] of Object.entries(pm)) if (pp === r.projPath && !tree[d]) { docId = d; break }
-    return { ok: true, queue: docId ? { docId, name: `${r.type} ${r.name} 설치`, prompt } : null, msg: `승인 — 설치 작업을 큐에 넣었습니다` }
+    return { ok: true, queue: docId ? { id: docId, docId, name: `${r.type} ${r.name} 설치`, prompt } : null, msg: `승인 — 설치 작업을 큐에 넣었습니다` }
   })
 
   // 🔭 벤치마킹 제안 착수/보류 — 착수 시 메인 문서 '➕ 추가할 기능'에 등재(다음 밤 자율 개선의 근거)
@@ -699,8 +699,19 @@ function registerIpc() {
       }
       fs.writeFileSync(b.mainDoc, doc)
       b.status = 'accepted'; b.acceptedAt = new Date().toISOString(); writeJson(benchPath, all)
-      rewriteLine('🚀 착수 — 메인 문서 "➕ 추가할 기능"에 등재됨')
-      return { ok: true, msg: `착수: ${b.title} → ${path.basename(b.mainDoc)} '➕ 추가할 기능'에 등재` }
+      // 🔴 게이트 대상은 등재만(자동 실행 금지) — 나머지는 구현 작업을 앱 작업 큐로 (주간·사용자 참관)
+      let queue = null
+      if (!b.gate && b.docId) {
+        const prompt = `[벤치 ${id}] '${b.title}' 아이디어를 이 프로젝트에 구현하라.\n` +
+          `내용: ${b.plain}\n구현 방법 제안: ${b.howBuilt}\n근거: ${b.evidence || b.source || ''}\n` +
+          `규칙: 공통 개선 규칙(docs/공통-개선-규칙.md)과 프로젝트 개선 규칙 문서를 먼저 읽고 따르라. ` +
+          `범위 작게, 기존 동작 보존, 검증(문법·빌드·테스트) 통과 후 커밋하라. push 금지. ` +
+          `완료 후 메인 문서 '➕ 추가할 기능'의 [벤치 ${id}] 항목을 '✅ 완성된 기능'으로 옮기고 작업 로그에 근거와 함께 기록하라.`
+        queue = { id: b.docId, docId: b.docId, name: `${id} ${b.title} 구현`, prompt }
+      }
+      rewriteLine(queue ? '🚀 착수 — 등재 + 구현 작업 시작됨' : '🚀 착수 — 등재됨 (🔴 확정 게이트: 자동 실행 없음)')
+      return { ok: true, queue, gate: b.gate || null, title: b.title, project: b.project,
+        msg: `착수: ${b.title} → '➕ 추가할 기능' 등재${queue ? ' + 구현 작업 큐 추가' : ''}` }
     } catch (e) {
       return { ok: false, msg: `착수 실패: ${e.message}` }
     }
