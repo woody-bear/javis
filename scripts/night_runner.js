@@ -204,6 +204,8 @@ async function main() {
   }
   fs.writeFileSync(LOCK, String(process.pid))
   try {
+    // 메인 문서 상단 Skill·Agent·MCP 현황 자동 갱신
+    try { require('./update_toolkit.js') } catch (e) { log(`toolkit 갱신 실패: ${e.message}`) }
     const cfg = readJson(path.join(HUB, 'config.json'), {})
     if (cfg.nightEnabled === false) { log('nightEnabled=false — 종료'); return }
     const model = cfg.nightModel || 'sonnet'
