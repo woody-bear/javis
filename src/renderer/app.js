@@ -469,6 +469,11 @@ function renderBlock(marked, blk, i) {
     if (a) {
       e.preventDefault()
       const href = a.getAttribute('href') || ''
+      if (href.startsWith('jarvis-reco://')) {
+        const m = /^jarvis-reco:\/\/(approve|reject)\/(.+)$/.exec(href)
+        if (m) resolveReco(decodeURIComponent(m[2]), m[1])
+        return
+      }
       if (href.endsWith('.md') || href.endsWith('.html')) selectDoc(decodeURI(href))
       return
     }
@@ -1308,9 +1313,9 @@ async function drainAnalysisQueue() {
   setBusy(true, `자동 분석: ${job.name} (ESC로 중단)`)
   procReset()
   procAppend('', `<span class="pl-tool">▶</span> [자동] ${esc(job.name)} 프로젝트 분석`)
-  const res = await window.jarvis.chat.send(job.id,
-    `이 문서는 '${job.name}' 프로젝트의 메인 분석 문서다. 프로젝트 구조와 핵심 기능을 훑어보고 ` +
-    `개요·주요 기능·구조를 정리해 문서를 채워줘. 완성/추가/개선 3섹션도 현재 코드 기준으로 정리해줘.`)
+  const res = await window.jarvis.chat.send(job.id, job.prompt ||
+    (`이 문서는 '${job.name}' 프로젝트의 메인 분석 문서다. 프로젝트 구조와 핵심 기능을 훑어보고 ` +
+    `개요·주요 기능·구조를 정리해 문서를 채워줘. 완성/추가/개선 3섹션도 현재 코드 기준으로 정리해줘.`))
   setBusy(false)
   if (currentDoc === job.id) reloadFrame()
   refreshDocs()
@@ -1326,6 +1331,17 @@ window.jarvis.events.onNotice((msg) => {
   procNote('pl-text', `ℹ ${esc(msg)}`)
 })
 setInterval(drainAnalysisQueue, 30_000)
+
+// ── 🧩 도구 추천 승인/거부 (브리핑 문서의 버튼 링크) ──
+async function resolveReco(id, action) {
+  const res = await window.jarvis.reco.resolve(id, action)
+  procNote(res.ok ? 'pl-done' : 'pl-err', `🧩 ${esc(res.msg || '')}`)
+  if (res.ok && res.queue) {
+    analysisQueue.push(res.queue)
+    drainAnalysisQueue()
+  }
+  reloadFrame()   // 브리핑 라인 상태 갱신 반영
+}
 
 // ── 🌙 아침 브리핑 — 야간 러너 결과 자동 표시 ──
 window.jarvis.events.onNightBriefing(async ({ date }) => {

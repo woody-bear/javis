@@ -74,6 +74,11 @@ function nightPrompt(projName, mainDocPath, ruleDocPath) {
     '     [WHY] <이 개선을 한 근거 한두 문장>',
     '     [BRIEF] DONE: <무엇을 개선했는지 한 줄>',
     '4) push는 절대 하지 마라. 서버 재시작·배포도 하지 마라.',
+    '5) (개선 실행과 별개) 이 프로젝트 개선에 실질적으로 도움이 될 Claude Code용 skill/agent/MCP가',
+    '   있으면 최대 2개까지 추천하라. 이미 설치된 것(메인 문서 상단 🧩 표)은 제외. 확신 없으면 추천하지 마라.',
+    '   각 추천은 결과 마지막 부분에 정확히 한 줄 JSON으로:',
+    '   [RECO] {"type":"mcp","name":"이름","reason":"이 프로젝트에 왜 필요한지 근거","install":{"command":"npx","args":["-y","패키지"]}}',
+    '   [RECO] {"type":"skill"|"agent","name":"이름","reason":"근거","install":{"prompt":"설치 시 파일을 작성할 지시문"}}',
   ].filter(Boolean).join('\n')
 }
 
@@ -109,6 +114,7 @@ function runClaude(projPath, prompt, model) {
 }
 
 async function processProject(name, projPath, mainDocPath, ruleDocPath, model) {
+  const _projPath = projPath
   // git 필수
   if (!trySh('git rev-parse --is-inside-work-tree', projPath)) {
     return { name, status: 'skip', reason: 'git 저장소 아님 — 자율 수정 대상 제외' }
@@ -146,13 +152,20 @@ async function processProject(name, projPath, mainDocPath, ruleDocPath, model) {
   const brief = briefMatch ? briefMatch[2].trim() : (out.result || '').slice(-200).replace(/\s+/g, ' ')
   const whyMatch = /\[WHY\]\s*(.+)/i.exec(out.result || '')
   const why = whyMatch ? whyMatch[1].trim() : null
+  const recos = []
+  for (const m of (out.result || '').matchAll(/\[RECO\]\s*(\{.*\})/g)) {
+    try {
+      const r = JSON.parse(m[1])
+      if (r && r.type && r.name && r.reason) recos.push({ type: r.type, name: r.name, reason: r.reason, install: r.install || null })
+    } catch {}
+  }
 
   if (briefMatch && briefMatch[1].toUpperCase() === 'SKIP') {
     // 무변경 SKIP인데 커밋이 생겼으면 이상 — 기록만
-    return { name, status: 'none', reason: brief, commits }
+    return { name, projPath: _projPath, status: 'none', reason: brief, commits, recos }
   }
   if (out.code === 0 && commits > 0) {
-    return { name, status: 'done', reason: brief, why, commits, branch: BRANCH }
+    return { name, projPath: _projPath, status: 'done', reason: brief, why, commits, branch: BRANCH, recos }
   }
   return { name, status: 'fail', reason: `종료코드 ${out.code}, 커밋 ${commits} — ${brief}`, commits }
 }
@@ -164,6 +177,23 @@ function writeBriefing(results) {
     const why = r.status === 'done' && r.why ? `\n  - **근거**: ${r.why}` : ''
     return `- ${icons[r.status]} **${r.name}** — ${r.reason}${extra}${why}`
   })
+  // 도구 추천 → recos.json(pending) + 브리핑 버튼 라인
+  const recosPath = path.join(NIGHT_DIR, 'recos.json')
+  const recosAll = readJson(recosPath, {})
+  const recoLines = []
+  for (const r of results) {
+    for (const rec of (r.recos || [])) {
+      const id = `${DATE}-${r.name}-${rec.type}-${rec.name}`.replace(/[^\w가-힣.-]/g, '_')
+      if (recosAll[id]) continue
+      recosAll[id] = { id, date: DATE, project: r.name, projPath: r.projPath, ...rec, status: 'pending' }
+      recoLines.push(
+        `- 🧩 **[${rec.type.toUpperCase()}] ${rec.name}** → ${r.name} — ${rec.reason} ` +
+        `<!--RECO:${id}--> [✅ 설치](jarvis-reco://approve/${encodeURIComponent(id)}) · [❌ 거부](jarvis-reco://reject/${encodeURIComponent(id)})`
+      )
+    }
+  }
+  fs.writeFileSync(recosPath, JSON.stringify(recosAll, null, 2))
+
   const doneCnt = results.filter((r) => r.status === 'done').length
   const section = [
     `## 🌙 ${DATE} 야간 브리핑`,
@@ -171,6 +201,7 @@ function writeBriefing(results) {
     `개선 ${doneCnt}건 · 불필요 판정 ${results.filter((r) => r.status === 'none').length}건 · 스킵 ${results.filter((r) => r.status === 'skip').length}건`,
     '',
     ...lines,
+    ...(recoLines.length ? ['', '### 🧩 도구 추천 (검토 후 설치/거부)', '', ...recoLines] : []),
     '',
   ].join('\n')
 

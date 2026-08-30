@@ -598,6 +598,68 @@ function registerIpc() {
     }
   })
   ipcMain.handle('chat:busy', () => !!claudeProc)
+  // 도구 추천 승인/거부 — 승인 시 MCP는 즉시 설치, skill/agent는 설치 작업 반환(렌더러 큐 실행)
+  ipcMain.handle('reco:resolve', (_e, { id, action }) => {
+    const recosPath = path.join(HUB_DIR, 'night', 'recos.json')
+    const recos = readJson(recosPath, {})
+    const r = recos[id]
+    if (!r) return { ok: false, msg: '추천 항목을 찾을 수 없습니다' }
+    if (r.status !== 'pending') return { ok: false, msg: `이미 처리됨 (${r.status})` }
+
+    const briefDoc = path.join(docsDir(), '야간-브리핑.md')
+    const rewriteLine = (statusText) => {
+      try {
+        if (!fs.existsSync(briefDoc)) return
+        let doc = fs.readFileSync(briefDoc, 'utf8')
+        const marker = `<!--RECO:${id}-->`
+        const re = new RegExp(`${marker.replace(/[.*+?^$()|[\]\\]/g, '\\$&')}[^\n]*`)
+        doc = doc.replace(re, `${marker} **${statusText}**`)
+        fs.writeFileSync(briefDoc, doc)
+      } catch { /* noop */ }
+    }
+
+    if (action === 'reject') {
+      r.status = 'rejected'
+      writeJson(recosPath, recos)
+      rewriteLine('❌ 거부됨')
+      return { ok: true, msg: `거부: ${r.name}` }
+    }
+
+    // 승인
+    if (r.type === 'mcp') {
+      try {
+        const mcpPath = path.join(r.projPath, '.mcp.json')
+        const cfg = readJson(mcpPath, {})
+        cfg.mcpServers = cfg.mcpServers || {}
+        if (!r.install || !r.install.command) throw new Error('설치 스펙(command) 없음')
+        cfg.mcpServers[r.name] = { command: r.install.command, args: r.install.args || [], ...(r.install.env ? { env: r.install.env } : {}) }
+        writeJson(mcpPath, cfg)
+        r.status = 'installed'
+        writeJson(recosPath, recos)
+        rewriteLine('✅ 설치됨')
+        try { require(path.join(__dirname, '..', 'scripts', 'update_toolkit.js')) } catch { /* noop */ }
+        return { ok: true, msg: `MCP '${r.name}' 를 ${path.basename(r.projPath)}/.mcp.json 에 설치했습니다` }
+      } catch (e) {
+        return { ok: false, msg: `MCP 설치 실패: ${e.message}` }
+      }
+    }
+    // skill / agent — claude 설치 작업을 렌더러 큐로
+    r.status = 'approved'
+    writeJson(recosPath, recos)
+    rewriteLine('✅ 승인 — 설치 작업 실행')
+    const dir = r.type === 'skill' ? '.claude/skills' : '.claude/agents'
+    const prompt = `이 프로젝트에 Claude Code용 ${r.type} '${r.name}' 를 설치하라. ` +
+      `${dir}/ 아래에 적절한 파일(들)을 작성하고, 설치 근거: ${r.reason}. ` +
+      (r.install && r.install.prompt ? `작성 지침: ${r.install.prompt} ` : '') +
+      `완료 후 메인 문서 작업 로그에 근거와 함께 1줄 기록하라.`
+    // 이 프로젝트의 메인 문서 docId 찾기
+    const pm = readJson(docProjectsPath(), {})
+    const tree = readTree()
+    let docId = null
+    for (const [d, pp] of Object.entries(pm)) if (pp === r.projPath && !tree[d]) { docId = d; break }
+    return { ok: true, queue: docId ? { docId, name: `${r.type} ${r.name} 설치`, prompt } : null, msg: `승인 — 설치 작업을 큐에 넣었습니다` }
+  })
+
   ipcMain.handle('night:ackBriefing', () => {
     try { fs.unlinkSync(path.join(HUB_DIR, 'night', 'unread')) } catch { /* noop */ }
     return true

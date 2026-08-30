@@ -1,9 +1,10 @@
 {
   "": [
-    "jarvis.md",
     "야간-브리핑.md",
+    "jarvis.md",
     "추세추종프로젝트.md",
-    "인터벌러너.md"
+    "인터벌러너.md",
+    "keyboardwarrior.md"
   ],
   "추세추종프로젝트.md": [
     "추세추종-개선-규칙.md"
