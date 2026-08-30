@@ -61,11 +61,16 @@ function nightPrompt(projName, mainDocPath) {
     '2) 가치 있는 개선이 없다면: 아무 파일도 수정하지 말고, 마지막 줄에 정확히',
     '   [BRIEF] SKIP: <한 줄 이유> 를 출력하고 끝내라.',
     '3) 가치 있는 개선이 있다면 딱 1건만:',
+    '   - 구현 전에 반드시 "근거"를 확정하라: 어떤 문제/불편/위험이 실제로 있고, 왜 이 개선이',
+    '     지금 가치가 있는지. 근거가 한 문장으로 명확히 서술되지 않으면 그 작업은 SKIP 대상이다.',
     '   - 범위 작게 (수정 파일 5개 이내), 기존 동작 보존, 파괴적 작업 금지(삭제·마이그레이션·의존성 대량 변경 금지)',
     '   - 구현 후 검증(문법 체크·빌드·가능하면 테스트)까지 통과시켜라. 검증 실패 상태로 남기지 마라.',
-    '   - 현재 브랜치(이미 야간 브랜치다)에 커밋하라. 커밋 메시지는 "night: <내용>" 형식.',
-    mainDocPath ? '   - 메인 문서의 작업 로그에 오늘 날짜로 1줄 기록하라.' : '',
-    '   - 마지막 줄에 정확히 [BRIEF] DONE: <무엇을 왜 개선했는지 한 줄> 을 출력하라.',
+    '   - 현재 브랜치(이미 야간 브랜치다)에 커밋하라. 커밋 메시지는 "night: <내용>" 제목 +',
+    '     본문에 "근거: <왜 필요한가>"를 반드시 포함하라.',
+    mainDocPath ? '   - 메인 문서의 작업 로그에 오늘 날짜로 기록하라 — 한 일 + 근거를 함께.' : '',
+    '   - 마지막에 다음 두 줄을 정확한 형식으로 출력하라:',
+    '     [WHY] <이 개선을 한 근거 한두 문장>',
+    '     [BRIEF] DONE: <무엇을 개선했는지 한 줄>',
     '4) push는 절대 하지 마라. 서버 재시작·배포도 하지 마라.',
   ].filter(Boolean).join('\n')
 }
@@ -137,13 +142,15 @@ async function processProject(name, projPath, mainDocPath, model) {
   const commits = parseInt(trySh(`git rev-list --count ${baseHead}..${BRANCH}`, projPath) || '0', 10)
   const briefMatch = /\[BRIEF\]\s*(SKIP|DONE):\s*(.+)/i.exec(out.result || '')
   const brief = briefMatch ? briefMatch[2].trim() : (out.result || '').slice(-200).replace(/\s+/g, ' ')
+  const whyMatch = /\[WHY\]\s*(.+)/i.exec(out.result || '')
+  const why = whyMatch ? whyMatch[1].trim() : null
 
   if (briefMatch && briefMatch[1].toUpperCase() === 'SKIP') {
     // 무변경 SKIP인데 커밋이 생겼으면 이상 — 기록만
     return { name, status: 'none', reason: brief, commits }
   }
   if (out.code === 0 && commits > 0) {
-    return { name, status: 'done', reason: brief, commits, branch: BRANCH }
+    return { name, status: 'done', reason: brief, why, commits, branch: BRANCH }
   }
   return { name, status: 'fail', reason: `종료코드 ${out.code}, 커밋 ${commits} — ${brief}`, commits }
 }
@@ -152,7 +159,8 @@ function writeBriefing(results) {
   const icons = { done: '✅', none: '💤', skip: '⏭', fail: '❌' }
   const lines = results.map((r) => {
     const extra = r.status === 'done' ? ` _(브랜치 \`${r.branch}\`, 커밋 ${r.commits} — 리뷰 후 머지)_` : ''
-    return `- ${icons[r.status]} **${r.name}** — ${r.reason}${extra}`
+    const why = r.status === 'done' && r.why ? `\n  - **근거**: ${r.why}` : ''
+    return `- ${icons[r.status]} **${r.name}** — ${r.reason}${extra}${why}`
   })
   const doneCnt = results.filter((r) => r.status === 'done').length
   const section = [
