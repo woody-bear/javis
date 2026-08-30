@@ -202,4 +202,4 @@ jarvis/
 
 ## 갈래
 
-- [jarvis 개선 규칙](jarvis-개선-규칙.md)
+- [jarvis 개선 규칙](jarvis-개선-규칙.md) — 이 프로젝트 전용 규칙. 전 프로젝트 공통 규칙은 루트 문서 `docs/공통-개선-규칙.md`

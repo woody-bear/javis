@@ -7,6 +7,7 @@
  *  - night/<날짜> 브랜치에만 커밋, push 없음, 끝나면 원래 브랜치로 복귀
  *  - 타임박스: 프로젝트당 25분, 03:30 이후 신규 시작 금지
  *  - 결과는 docs/야간-브리핑.md(최신이 위) + ~/JarvisHub/night/<날짜>.json
+ *  - 개선 규칙: docs/공통-개선-규칙.md(전 프로젝트 공통) → <프로젝트>-개선-규칙.md(프로젝트 전용) 순으로 읽음
  */
 const { spawn, execSync } = require('child_process')
 const fs = require('fs')
@@ -18,6 +19,7 @@ const HUB = path.join(HOME, 'JarvisHub')
 const NIGHT_DIR = path.join(HUB, 'night')
 const JARVIS_DOCS = path.join(HOME, 'workflow', 'jarvis', 'docs')
 const BRIEF_DOC = path.join(JARVIS_DOCS, '야간-브리핑.md')
+const COMMON_RULE_DOC = path.join(JARVIS_DOCS, '공통-개선-규칙.md') // 모든 프로젝트 공통 개선 규칙
 const LOCK = path.join(NIGHT_DIR, 'runner.lock')
 const PER_PROJECT_MS = 25 * 60 * 1000
 const NO_NEW_AFTER_HOUR = 3.5   // 03:30 이후 신규 시작 금지 (테스트 모드 제외)
@@ -49,11 +51,14 @@ function findClaude() {
   return 'claude'
 }
 
-function nightPrompt(projName, mainDocPath, ruleDocPath) {
+function nightPrompt(projName, mainDocPath, ruleDocPath, commonRulePath) {
+  const hasCommon = commonRulePath && fs.existsSync(commonRulePath)
   return [
     `너는 '${projName}' 프로젝트의 야간 자율 개선 에이전트다. 지금은 무인 실행이며 사용자는 자고 있다.`,
-    ruleDocPath ? `⚖️ 개선 규칙 문서: ${ruleDocPath} — 반드시 먼저 읽어라. 문서의 "🎨/🎯 개선 목표" 한 줄을 개선 우선순위 판단 기준으로 삼되, 금지 구역·검증·근거 원칙은 목표보다 항상 우선한다.` : '',
-    '기본 개선사항(공통 점검 순서): ① 불필요한 중복 기능 제거 ② 에러 발생 요인 제거 ③ 좀비 프로세스 생성 요인 개선.',
+    hasCommon
+      ? `⚖️ ① 공통 개선 규칙 문서: ${commonRulePath} — 모든 프로젝트에 적용되는 기본 개선사항·절대 원칙. 가장 먼저 읽어라.`
+      : '기본 개선사항(공통 점검 순서): ① 불필요한 중복 기능 제거 ② 에러 발생 요인 제거 ③ 좀비 프로세스 생성 요인 개선.',
+    ruleDocPath ? `⚖️ ${hasCommon ? '②' : '①'} 프로젝트 개선 규칙 문서: ${ruleDocPath} — 공통 규칙 다음에 읽어라. 프로젝트 규칙이 공통 규칙보다 우선하되, 공통 문서의 '절대 원칙'은 덮어쓸 수 없다. 문서의 "🎯 개선 목표" 한 줄을 개선 우선순위 판단 기준으로 삼되, 금지 구역·검증·근거 원칙은 목표보다 항상 우선한다.` : '',
     mainDocPath ? `프로젝트 메인 문서: ${mainDocPath} — '🔧 개선할 기능' 섹션도 참고하라.` : '',
     '',
     '절차 (반드시 이 순서):',
@@ -141,7 +146,7 @@ async function processProject(name, projPath, mainDocPath, ruleDocPath, model) {
   log(`▶ ${name} 시작 (브랜치 ${BRANCH}, 원복귀 ${origBranch})`)
   let out
   try {
-    out = await runClaude(projPath, nightPrompt(name, mainDocPath, ruleDocPath), model)
+    out = await runClaude(projPath, nightPrompt(name, mainDocPath, ruleDocPath, COMMON_RULE_DOC), model)
   } finally {
     // 미커밋 잔여물은 폐기하고 원래 브랜치로 복귀 (untracked는 그대로 둠)
     trySh('git reset --hard', projPath)
@@ -217,9 +222,16 @@ function writeBriefing(results) {
   const orderPath = path.join(JARVIS_DOCS, '.docorder.json')
   const order = readJson(orderPath, {})
   const root = order[''] || []
+  let changed = false
   if (!root.includes('야간-브리핑.md')) {
     const at = root.indexOf('jarvis.md')
-    root.splice(at === -1 ? 0 : at + 1, 0, '야간-브리핑.md')
+    root.splice(at === -1 ? 0 : at + 1, 0, '야간-브리핑.md'); changed = true
+  }
+  // 공통 개선 규칙 문서는 브리핑 바로 아래 고정
+  if (fs.existsSync(COMMON_RULE_DOC) && !root.includes('공통-개선-규칙.md')) {
+    root.splice(root.indexOf('야간-브리핑.md') + 1, 0, '공통-개선-규칙.md'); changed = true
+  }
+  if (changed) {
     order[''] = root
     fs.writeFileSync(orderPath, JSON.stringify(order, null, 2))
   }
