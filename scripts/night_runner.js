@@ -52,7 +52,7 @@ function findClaude() {
 function nightPrompt(projName, mainDocPath, ruleDocPath) {
   return [
     `너는 '${projName}' 프로젝트의 야간 자율 개선 에이전트다. 지금은 무인 실행이며 사용자는 자고 있다.`,
-    ruleDocPath ? `⚖️ 개선 규칙 문서: ${ruleDocPath} — 반드시 먼저 읽고 그 우선순위·금지 구역·검증 요구를 따르라. 규칙과 충돌하는 작업은 하지 마라.` : '',
+    ruleDocPath ? `⚖️ 개선 규칙 문서: ${ruleDocPath} — 반드시 먼저 읽어라. 문서의 "🎨/🎯 개선 목표" 한 줄을 개선 우선순위 판단 기준으로 삼되, 금지 구역·검증·근거 원칙은 목표보다 항상 우선한다.` : '',
     '기본 개선사항(공통 점검 순서): ① 불필요한 중복 기능 제거 ② 에러 발생 요인 제거 ③ 좀비 프로세스 생성 요인 개선.',
     mainDocPath ? `프로젝트 메인 문서: ${mainDocPath} — '🔧 개선할 기능' 섹션도 참고하라.` : '',
     '',
