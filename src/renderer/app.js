@@ -6,6 +6,7 @@ let recording = false
 let busy = false
 let docOrder = []   // 사이드바 렌더 순서 (제스처 위/아래 이동용)
 let docFirstChild = {}   // parentId → 첫 번째 갈래 id (검지 오른쪽 제스처용)
+let docParent = {}       // childId → parentId (검지 왼쪽: 상위 문서 이동용)
 
 // ── 문서 목록 ─────────────────────────────────────────────────────
 let dragState = null   // { id, group }
@@ -34,6 +35,8 @@ async function refreshDocs(selectId) {
   for (const [k, v] of children) children.set(k, sortGroup(v, k))
   docFirstChild = {}
   for (const [k, v] of children) if (v.length) docFirstChild[k] = v[0].id
+  docParent = {}
+  for (const d of docs) if (d.parentId) docParent[d.id] = d.parentId
 
   // 선택된 문서의 최상위(메인) 문서만 갈래를 펼친다 — 메인 클릭 → 하단에 갈래 순서대로 표시
   const parentOf = new Map(docs.map((x) => [x.id, x.parentId]))
@@ -1003,6 +1006,14 @@ function scrollDocByBlock(delta) {
   }
 }
 
+function navigateUp() {
+  const parent = docParent[currentDoc]
+  if (!parent) { showGestureToast('👈', '최상위 문서입니다'); return }
+  showGestureToast('👈', '상위 문서로 이동')
+  tick()
+  selectDoc(parent)
+}
+
 function navigateInto() {
   const child = docFirstChild[currentDoc]
   if (!child) {
@@ -1162,8 +1173,8 @@ async function startGesture() {
     if (seen !== handSeen) {
       handSeen = seen
       $('gestureStatus').textContent = seen
-        ? '✋ 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 맵 · 왼✊+오🖐 전체화면(✊✊ 종료)'
-        : '대기 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부문서 · 🖐 프로젝트 맵'
+        ? '✋ 감지 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부 · 👈 상위 · 🖐 맵 · 왼✊+오🖐 전체화면'
+        : '대기 중 — ✊ 듣기 · ☝👇 이동 · 👉 세부 · 👈 상위 · 🖐 프로젝트 맵'
     }
     const g = result && result.gestures && result.gestures[0] && result.gestures[0][0]
     const lm = result && result.landmarks && result.landmarks[0]
@@ -1223,6 +1234,7 @@ async function startGesture() {
           else if (dir === 'up') navigateDoc(-1)
           else if (dir === 'down') navigateDoc(1)
           else if (dir === 'right') navigateInto()
+          else if (dir === 'left') navigateUp()
         }
       }
       return
@@ -1267,10 +1279,10 @@ async function startGesture() {
         navLastFire = Date.now()
         navHits = 0
         if (document.body.classList.contains('doc-full') && (dir === 'up' || dir === 'down')) scrollDocByBlock(dir === 'up' ? -1 : 1)
-          else if (dir === 'up') navigateDoc(-1)
+        else if (dir === 'up') navigateDoc(-1)
         else if (dir === 'down') navigateDoc(1)
         else if (dir === 'right') navigateInto()   // 세부문서(첫 갈래)로 진입
-        // 'left'는 예약 (현재 미사용)
+        else if (dir === 'left') navigateUp()      // 👈 상위 문서로
       }
     }
   }, GESTURE_FPS_MS)
