@@ -49,10 +49,12 @@ function findClaude() {
   return 'claude'
 }
 
-function nightPrompt(projName, mainDocPath) {
+function nightPrompt(projName, mainDocPath, ruleDocPath) {
   return [
     `너는 '${projName}' 프로젝트의 야간 자율 개선 에이전트다. 지금은 무인 실행이며 사용자는 자고 있다.`,
-    mainDocPath ? `프로젝트 메인 문서: ${mainDocPath} — '🔧 개선할 기능' 섹션을 우선 참고하라.` : '',
+    ruleDocPath ? `⚖️ 개선 규칙 문서: ${ruleDocPath} — 반드시 먼저 읽고 그 우선순위·금지 구역·검증 요구를 따르라. 규칙과 충돌하는 작업은 하지 마라.` : '',
+    '기본 개선사항(공통 점검 순서): ① 불필요한 중복 기능 제거 ② 에러 발생 요인 제거 ③ 좀비 프로세스 생성 요인 개선.',
+    mainDocPath ? `프로젝트 메인 문서: ${mainDocPath} — '🔧 개선할 기능' 섹션도 참고하라.` : '',
     '',
     '절차 (반드시 이 순서):',
     '1) 먼저 평가만 하라: 프로젝트를 훑고 "지금 실제로 가치 있는 개선 1건"이 있는지 판단한다.',
@@ -106,7 +108,7 @@ function runClaude(projPath, prompt, model) {
   })
 }
 
-async function processProject(name, projPath, mainDocPath, model) {
+async function processProject(name, projPath, mainDocPath, ruleDocPath, model) {
   // git 필수
   if (!trySh('git rev-parse --is-inside-work-tree', projPath)) {
     return { name, status: 'skip', reason: 'git 저장소 아님 — 자율 수정 대상 제외' }
@@ -133,7 +135,7 @@ async function processProject(name, projPath, mainDocPath, model) {
   log(`▶ ${name} 시작 (브랜치 ${BRANCH}, 원복귀 ${origBranch})`)
   let out
   try {
-    out = await runClaude(projPath, nightPrompt(name, mainDocPath), model)
+    out = await runClaude(projPath, nightPrompt(name, mainDocPath, ruleDocPath), model)
   } finally {
     // 미커밋 잔여물은 폐기하고 원래 브랜치로 복귀 (untracked는 그대로 둠)
     trySh('git reset --hard', projPath)
@@ -209,6 +211,7 @@ async function main() {
     const roots = readJson(path.join(JARVIS_DOCS, '.docroots.json'), {})
 
     // 프로젝트별 (메인 문서, 경로) 목록 — jarvis 문서 저장 폴더에서 메인 문서 경로 결정
+    const tree = readJson(path.join(JARVIS_DOCS, '.doctree.json'), {})
     const targets = []
     const seen = new Set()
     for (const [docId, proj] of Object.entries(projects)) {
@@ -218,7 +221,16 @@ async function main() {
       if (ONLY && name !== ONLY) continue
       const docDir = roots[docId] && fs.existsSync(roots[docId]) ? roots[docId] : JARVIS_DOCS
       const mainDoc = path.join(docDir, docId)
-      targets.push({ name, proj, mainDoc: fs.existsSync(mainDoc) ? mainDoc : null })
+      // '개선 규칙' 갈래 문서 — 메인 문서의 자식 중 파일명에 '개선-규칙' 포함
+      let ruleDoc = null
+      for (const [child, parent] of Object.entries(tree)) {
+        if (parent === docId && child.includes('개선-규칙')) {
+          const cdir = roots[child] && fs.existsSync(roots[child]) ? roots[child] : JARVIS_DOCS
+          const cp = path.join(cdir, child)
+          if (fs.existsSync(cp)) { ruleDoc = cp; break }
+        }
+      }
+      targets.push({ name, proj, mainDoc: fs.existsSync(mainDoc) ? mainDoc : null, ruleDoc })
     }
     log(`야간 러너 시작 — 대상 ${targets.length}개, 모델 ${model}${TEST ? ' [TEST]' : ''}`)
 
@@ -230,7 +242,7 @@ async function main() {
         continue
       }
       try {
-        results.push(await processProject(t.name, t.proj, t.mainDoc, model))
+        results.push(await processProject(t.name, t.proj, t.mainDoc, t.ruleDoc, model))
       } catch (e) {
         results.push({ name: t.name, status: 'fail', reason: String(e).slice(0, 200) })
       }

@@ -34,6 +34,16 @@ async function refreshDocs(selectId) {
   for (const [k, v] of children) children.set(k, sortGroup(v, k))
   docFirstChild = {}
   for (const [k, v] of children) if (v.length) docFirstChild[k] = v[0].id
+
+  // 선택된 문서의 최상위(메인) 문서만 갈래를 펼친다 — 메인 클릭 → 하단에 갈래 순서대로 표시
+  const parentOf = new Map(docs.map((x) => [x.id, x.parentId]))
+  const rootIdOf = (id) => {
+    let cur = id
+    for (let i = 0; cur && parentOf.get(cur) && i < 12; i += 1) cur = parentOf.get(cur)
+    return cur
+  }
+  const sel = selectId ?? currentDoc
+  const expandedRoot = sel ? rootIdOf(sel) : null
   const siblingIds = (groupKey) =>
     (groupKey ? (children.get(groupKey) || []) : roots).map((x) => x.id)
   docOrder = []
@@ -77,7 +87,11 @@ async function refreshDocs(selectId) {
       dragState = null
       refreshDocs()
     })
-    el.innerHTML = `${depth > 0 ? '<span class="tw">↳</span>' : ''}<span class="t"></span>` +
+    const kids0 = children.get(d.id) || []
+    const caret = depth === 0 && kids0.length
+      ? `<span class="tw">${d.id === expandedRoot ? '▾' : '▸'}</span>`
+      : depth > 0 ? '<span class="tw">↳</span>' : ''
+    el.innerHTML = `${caret}<span class="t"></span>` +
       `<button class="rename" title="이름 변경 (더블클릭도 가능)">✎</button>` +
       `<button class="branch" title="갈래 만들기 — 이 문서에서 주제 분기">⑂</button>` +
       `<button class="del" title="삭제">✕</button>`
@@ -133,7 +147,10 @@ async function refreshDocs(selectId) {
       refreshDocs()
     })
     list.appendChild(el)
-    for (const c of (children.get(d.id) || [])) renderItem(c, depth + 1)
+    // 갈래는 선택된 메인 문서 아래에서만 펼침 (하위 갈래는 항상 따라 펼침)
+    if (depth > 0 || d.id === expandedRoot) {
+      for (const c of (children.get(d.id) || [])) renderItem(c, depth + 1)
+    }
   }
   const roots = sortGroup(docs.filter((x) => !x.parentId), '')
   mapRoots = roots.map((r) => r.id)
