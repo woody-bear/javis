@@ -477,6 +477,11 @@ function renderBlock(marked, blk, i) {
         if (m) resolveReco(decodeURIComponent(m[2]), m[1])
         return
       }
+      if (href.startsWith('jarvis-bench://')) {
+        const m = /^jarvis-bench:\/\/(accept|hold)\/(.+)$/.exec(href)
+        if (m) resolveBench(decodeURIComponent(m[2]), m[1])
+        return
+      }
       if (href.endsWith('.md') || href.endsWith('.html')) selectDoc(decodeURI(href))
       return
     }
@@ -1353,6 +1358,12 @@ async function resolveReco(id, action) {
     drainAnalysisQueue()
   }
   reloadFrame()   // 브리핑 라인 상태 갱신 반영
+}
+
+async function resolveBench(id, action) {
+  const res = await window.jarvis.bench.resolve(id, action)
+  procNote(res.ok ? 'pl-done' : 'pl-err', `🔭 ${esc(res.msg || '')}`)
+  reloadFrame()
 }
 
 // ── 🌙 아침 브리핑 — 야간 러너 결과 자동 표시 ──

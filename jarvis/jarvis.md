@@ -2,8 +2,27 @@
 
 > Jarvis 문서 · 음성/텍스트 피드백으로 보강됩니다 · 블록을 클릭하면 직접 편집
 
+<!-- PURPOSE:START -->
+## 🧭 프로젝트 목적 (한 문장)
+
+> (아직 미설정 — 이 문장을 클릭해 프로젝트의 목적을 한 문장으로 작성하세요)
+
+_이 한 문장이 모든 개선의 최종 목표다. 야간 자율 개선과 벤치마킹 조사는 "이 문장에 더 가까워지는가"로 후보를 고른다. 이 블록을 클릭해 언제든 수정할 수 있다._
+<!-- PURPOSE:END -->
+
 <!-- TOOLKIT:START -->
 ## 🧩 사용 중인 Skill · Agent · MCP
+
+_자동 스캔 2026-08-30 — .claude/skills·commands·agents, .mcp.json 기준. 야간 러너가 매일 갱신_
+
+| 구분 | 사용 중 |
+|------|---------|
+| 🛠 Skill | — (전역 기본만 사용) |
+| 🤖 Agent | `benchmark-scout` · `fit-judge` · `impl-analyst` |
+| 🔌 MCP | — (전역 기본만 사용) |
+<!-- TOOLKIT:END -->
+
+## 🧩 사용 중인 Skill · Agent · MCP
 
 _자동 스캔 2026-08-30 — .claude/skills·commands·agents, .mcp.json 기준. 야간 러너가 매일 갱신_
 
@@ -202,4 +221,4 @@ jarvis/
 
 ## 갈래
 
-- [jarvis 개선 규칙](jarvis-개선-규칙.md) — 이 프로젝트 전용 규칙. 전 프로젝트 공통 규칙은 루트 문서 `docs/공통-개선-규칙.md`
+- [jarvis 개선 규칙](jarvis-개선-규칙.md) — 이 프로젝트 전용 규칙. 전 프로젝트 공통 규칙은 루트 문서 `docs/공통-개선-규칙.md`. 개선 목표 = 메인 문서 상단 🧭 프로젝트 목적 한 문장

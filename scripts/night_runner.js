@@ -10,6 +10,7 @@
  *  - 개선 규칙: docs/공통-개선-규칙.md(전 프로젝트 공통) → <프로젝트>-개선-규칙.md(프로젝트 전용) 순으로 읽음
  */
 const { spawn, execSync } = require('child_process')
+const toolkit = require('./update_toolkit.js')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -51,14 +52,15 @@ function findClaude() {
   return 'claude'
 }
 
-function nightPrompt(projName, mainDocPath, ruleDocPath, commonRulePath) {
+function nightPrompt(projName, mainDocPath, ruleDocPath, commonRulePath, purpose) {
   const hasCommon = commonRulePath && fs.existsSync(commonRulePath)
   return [
     `너는 '${projName}' 프로젝트의 야간 자율 개선 에이전트다. 지금은 무인 실행이며 사용자는 자고 있다.`,
+    `🧭 프로젝트 목적(한 문장): "${purpose}" — 이것이 개선의 최종 목표다. 개선 후보마다 "이 목적에 어떻게 기여하는가"를 한 문장으로 답하라. 답하지 못하면 그 후보는 SKIP이다.`,
     hasCommon
       ? `⚖️ ① 공통 개선 규칙 문서: ${commonRulePath} — 모든 프로젝트에 적용되는 기본 개선사항·절대 원칙. 가장 먼저 읽어라.`
       : '기본 개선사항(공통 점검 순서): ① 불필요한 중복 기능 제거 ② 에러 발생 요인 제거 ③ 좀비 프로세스 생성 요인 개선.',
-    ruleDocPath ? `⚖️ ${hasCommon ? '②' : '①'} 프로젝트 개선 규칙 문서: ${ruleDocPath} — 공통 규칙 다음에 읽어라. 프로젝트 규칙이 공통 규칙보다 우선하되, 공통 문서의 '절대 원칙'은 덮어쓸 수 없다. 문서의 "🎯 개선 목표" 한 줄을 개선 우선순위 판단 기준으로 삼되, 금지 구역·검증·근거 원칙은 목표보다 항상 우선한다.` : '',
+    ruleDocPath ? `⚖️ ${hasCommon ? '②' : '①'} 프로젝트 개선 규칙 문서: ${ruleDocPath} — 공통 규칙 다음에 읽어라. 프로젝트 규칙이 공통 규칙보다 우선하되, 공통 문서의 '절대 원칙'은 덮어쓸 수 없다. 금지 구역·검증·근거 원칙은 위 목적보다 항상 우선한다.` : '',
     mainDocPath ? `프로젝트 메인 문서: ${mainDocPath} — '🔧 개선할 기능' 섹션도 참고하라.` : '',
     '',
     '절차 (반드시 이 순서):',
@@ -75,7 +77,8 @@ function nightPrompt(projName, mainDocPath, ruleDocPath, commonRulePath) {
     '   - 현재 브랜치(이미 야간 브랜치다)에 커밋하라. 커밋 메시지는 "night: <내용>" 제목 +',
     '     본문에 "근거: <왜 필요한가>"를 반드시 포함하라.',
     mainDocPath ? '   - 메인 문서의 작업 로그에 오늘 날짜로 기록하라 — 한 일 + 근거를 함께.' : '',
-    '   - 마지막에 다음 두 줄을 정확한 형식으로 출력하라:',
+    '   - 마지막에 다음 세 줄을 정확한 형식으로 출력하라:',
+    '     [GOAL] <이 개선이 프로젝트 목적 문장에 어떻게 기여하는지 한 문장>',
     '     [WHY] <이 개선을 한 근거 한두 문장>',
     '     [BRIEF] DONE: <무엇을 개선했는지 한 줄>',
     '4) push는 절대 하지 마라. 서버 재시작·배포도 하지 마라.',
@@ -120,6 +123,11 @@ function runClaude(projPath, prompt, model) {
 
 async function processProject(name, projPath, mainDocPath, ruleDocPath, model) {
   const _projPath = projPath
+  // 🧭 프로젝트 목적 필수 — 없으면 개선 보류, 브리핑에 작성 요청
+  const purpose = mainDocPath ? toolkit.readPurpose(mainDocPath) : null
+  if (!purpose) {
+    return { name, projPath: _projPath, status: 'skip', reason: '🧭 프로젝트 목적 미설정 — 메인 문서 상단 "프로젝트 목적 (한 문장)"을 작성하면 다음 밤부터 그 목적을 기준으로 개선합니다', noPurpose: true }
+  }
   // git 필수
   if (!trySh('git rev-parse --is-inside-work-tree', projPath)) {
     return { name, status: 'skip', reason: 'git 저장소 아님 — 자율 수정 대상 제외' }
@@ -146,7 +154,7 @@ async function processProject(name, projPath, mainDocPath, ruleDocPath, model) {
   log(`▶ ${name} 시작 (브랜치 ${BRANCH}, 원복귀 ${origBranch})`)
   let out
   try {
-    out = await runClaude(projPath, nightPrompt(name, mainDocPath, ruleDocPath, COMMON_RULE_DOC), model)
+    out = await runClaude(projPath, nightPrompt(name, mainDocPath, ruleDocPath, COMMON_RULE_DOC, purpose), model)
   } finally {
     // 미커밋 잔여물은 폐기하고 원래 브랜치로 복귀 (untracked는 그대로 둠)
     trySh('git reset --hard', projPath)
@@ -157,6 +165,8 @@ async function processProject(name, projPath, mainDocPath, ruleDocPath, model) {
   const brief = briefMatch ? briefMatch[2].trim() : (out.result || '').slice(-200).replace(/\s+/g, ' ')
   const whyMatch = /\[WHY\]\s*(.+)/i.exec(out.result || '')
   const why = whyMatch ? whyMatch[1].trim() : null
+  const goalMatch = /\[GOAL\]\s*(.+)/i.exec(out.result || '')
+  const goal = goalMatch ? goalMatch[1].trim() : null
   const recos = []
   for (const m of (out.result || '').matchAll(/\[RECO\]\s*(\{.*\})/g)) {
     try {
@@ -170,7 +180,7 @@ async function processProject(name, projPath, mainDocPath, ruleDocPath, model) {
     return { name, projPath: _projPath, status: 'none', reason: brief, commits, recos }
   }
   if (out.code === 0 && commits > 0) {
-    return { name, projPath: _projPath, status: 'done', reason: brief, why, commits, branch: BRANCH, recos }
+    return { name, projPath: _projPath, status: 'done', reason: brief, why, goal, purpose, commits, branch: BRANCH, recos }
   }
   return { name, status: 'fail', reason: `종료코드 ${out.code}, 커밋 ${commits} — ${brief}`, commits }
 }
@@ -179,8 +189,9 @@ function writeBriefing(results) {
   const icons = { done: '✅', none: '💤', skip: '⏭', fail: '❌' }
   const lines = results.map((r) => {
     const extra = r.status === 'done' ? ` _(브랜치 \`${r.branch}\`, 커밋 ${r.commits} — 리뷰 후 머지)_` : ''
+    const goal = r.status === 'done' && r.goal ? `\n  - **🧭 목적 기여**: ${r.goal}` : ''
     const why = r.status === 'done' && r.why ? `\n  - **근거**: ${r.why}` : ''
-    return `- ${icons[r.status]} **${r.name}** — ${r.reason}${extra}${why}`
+    return `- ${icons[r.status]} **${r.name}** — ${r.reason}${extra}${goal}${why}`
   })
   // 도구 추천 → recos.json(pending) + 브리핑 버튼 라인
   const recosPath = path.join(NIGHT_DIR, 'recos.json')
@@ -248,7 +259,7 @@ async function main() {
   fs.writeFileSync(LOCK, String(process.pid))
   try {
     // 메인 문서 상단 Skill·Agent·MCP 현황 자동 갱신
-    try { require('./update_toolkit.js') } catch (e) { log(`toolkit 갱신 실패: ${e.message}`) }
+    try { require('./update_toolkit.js').main() } catch (e) { log(`toolkit 갱신 실패: ${e.message}`) }
     const cfg = readJson(path.join(HUB, 'config.json'), {})
     if (cfg.nightEnabled === false) { log('nightEnabled=false — 종료'); return }
     const model = cfg.nightModel || 'sonnet'

@@ -45,6 +45,7 @@ function getConfig() {
     gestureMode: false,
     model: '',   // '' = Claude Code 기본 설정 따름 (전역 — 모든 문서·프로젝트 동일 적용)
     nightEnabled: true,   // 야간 자율 개선 러너 (launchd 23:00)
+    benchEnabled: true,   // 벤치마킹 조사 러너 — 하루 1개 프로젝트 순환 (launchd 22:00)
     nightModel: 'sonnet', // 야간 전용 모델 (비용 절약 기본값)
     ...readJson(CONFIG_PATH, {}),
   }
@@ -637,7 +638,7 @@ function registerIpc() {
         r.status = 'installed'
         writeJson(recosPath, recos)
         rewriteLine('✅ 설치됨')
-        try { require(path.join(__dirname, '..', 'scripts', 'update_toolkit.js')) } catch { /* noop */ }
+        try { require(path.join(__dirname, '..', 'scripts', 'update_toolkit.js')).main() } catch { /* noop */ }
         return { ok: true, msg: `MCP '${r.name}' 를 ${path.basename(r.projPath)}/.mcp.json 에 설치했습니다` }
       } catch (e) {
         return { ok: false, msg: `MCP 설치 실패: ${e.message}` }
@@ -658,6 +659,51 @@ function registerIpc() {
     let docId = null
     for (const [d, pp] of Object.entries(pm)) if (pp === r.projPath && !tree[d]) { docId = d; break }
     return { ok: true, queue: docId ? { docId, name: `${r.type} ${r.name} 설치`, prompt } : null, msg: `승인 — 설치 작업을 큐에 넣었습니다` }
+  })
+
+  // 🔭 벤치마킹 제안 착수/보류 — 착수 시 메인 문서 '➕ 추가할 기능'에 등재(다음 밤 자율 개선의 근거)
+  ipcMain.handle('bench:resolve', (_e, { id, action }) => {
+    const benchPath = path.join(HUB_DIR, 'night', 'bench', 'bench.json')
+    const all = readJson(benchPath, {})
+    const b = all[id]
+    if (!b) return { ok: false, msg: '제안 항목을 찾을 수 없습니다' }
+    if (b.status !== 'pending') return { ok: false, msg: `이미 처리됨 (${b.status})` }
+    const briefDoc = path.join(docsDir(), '야간-브리핑.md')
+    const rewriteLine = (statusText) => {
+      try {
+        if (!fs.existsSync(briefDoc)) return
+        let doc = fs.readFileSync(briefDoc, 'utf8')
+        const marker = `<!--BENCH:${id}-->`
+        const re = new RegExp(`${marker.replace(/[.*+?^$()|[\]\\]/g, '\\$&')}[^\n]*`)
+        doc = doc.replace(re, `${marker} **${statusText}**`)
+        fs.writeFileSync(briefDoc, doc)
+      } catch { /* noop */ }
+    }
+    if (action === 'hold') {
+      b.status = 'held'; writeJson(benchPath, all); rewriteLine('⏸ 보류됨')
+      return { ok: true, msg: `보류: ${b.title}` }
+    }
+    try {
+      if (!b.mainDoc || !fs.existsSync(b.mainDoc)) throw new Error('메인 문서 없음')
+      let doc = fs.readFileSync(b.mainDoc, 'utf8')
+      const gate = b.gate ? ` 🔴 **확정 게이트 대상 — 야간 무인 실행 금지, 주간 작업으로만** (${b.gate})` : ''
+      const item = `- **[벤치 ${id}] ${b.title}** (${new Date().toISOString().slice(0, 10)} 착수 승인) — ${b.plain}. 🧭 목적 기여: ${b.purposeFit}. 구현 방식: ${b.howBuilt} ([출처](${b.source})). 난이도 ${b.effort}.${gate}`
+      const h = doc.indexOf('## ➕ 추가할 기능')
+      if (h === -1) doc = doc.replace(/\s*$/, `\n\n## ➕ 추가할 기능\n\n${item}\n`)
+      else {
+        const bodyStart = doc.indexOf('\n', h) + 1
+        const next = doc.indexOf('\n## ', bodyStart)
+        const end = next === -1 ? doc.length : next
+        const body = doc.slice(bodyStart, end).replace(/\s*$/, '')
+        doc = doc.slice(0, bodyStart) + (body ? body + '\n' : '\n') + item + '\n\n' + doc.slice(end).replace(/^\n+/, '')
+      }
+      fs.writeFileSync(b.mainDoc, doc)
+      b.status = 'accepted'; b.acceptedAt = new Date().toISOString(); writeJson(benchPath, all)
+      rewriteLine('🚀 착수 — 메인 문서 "➕ 추가할 기능"에 등재됨')
+      return { ok: true, msg: `착수: ${b.title} → ${path.basename(b.mainDoc)} '➕ 추가할 기능'에 등재` }
+    } catch (e) {
+      return { ok: false, msg: `착수 실패: ${e.message}` }
+    }
   })
 
   ipcMain.handle('night:ackBriefing', () => {
