@@ -131,20 +131,20 @@ function prependBriefing(section) {
 
 function renderSection(t, purpose, proposals, note) {
   const head = [`## 🔭 ${DATE} 벤치마킹 제안 — ${t.name}`, '', `🧭 목적: _${purpose}_`, '']
-  if (note) return [...head, note, ''].join('\n')
-  if (!proposals.length) return [...head, '- 💤 목적에 기여하는 새 벤치마킹 사례 없음 (근거 없는 제안은 하지 않습니다)', ''].join('\n')
+  if (note) return [...head, note, '', ''].join('\n')
+  if (!proposals.length) return [...head, '- 💤 목적에 기여하는 새 벤치마킹 사례 없음 (근거 없는 제안은 하지 않습니다)', '', ''].join('\n')
   const icon = { recommend: '✅ 추천', hold: '⏸ 보류', gate: '🔴 확정 필요', reject: '❌ 부적합' }
   const lines = proposals.map((p) => {
     const btn = p.verdict === 'reject' ? '' :
       ` <!--BENCH:${p.id}--> [🚀 착수](jarvis-bench://accept/${encodeURIComponent(p.id)}) · [⏸ 보류](jarvis-bench://hold/${encodeURIComponent(p.id)})`
     return [
       `- **${p.id} · ${p.title}** — ${p.plain}${btn}`,
-      `  - **🧭 목적 기여**: ${p.purposeFit} (${p.fitLevel})`,
+      `  - **🧭 목적 기여**: ${p.purposeFit}${p.fitLevel ? ` (${p.fitLevel})` : ''}`,
       `  - **어떻게 만들었나**: ${p.howBuilt} — [출처](${p.source})`,
       `  - **판정**: ${icon[p.verdict] || p.verdict} · 난이도 ${p.effort}${p.gate ? ` · 🔴 ${p.gate}` : ''} — ${p.reason}`,
     ].join('\n')
   })
-  return [...head, ...lines, '', '_🚀 착수 → 메인 문서 "➕ 추가할 기능"에 등재되어 다음 밤 자율 개선의 근거가 됩니다. 🔴 확정 필요 항목은 착수해도 야간 무인 실행되지 않고 주간 작업으로만 진행됩니다._', ''].join('\n')
+  return [...head, ...lines, '', '_🚀 착수 → 메인 문서 "➕ 추가할 기능"에 등재되어 다음 밤 자율 개선의 근거가 됩니다. 🔴 확정 필요 항목은 착수해도 야간 무인 실행되지 않고 주간 작업으로만 진행됩니다._', '', ''].join('\n')
 }
 
 async function main() {
