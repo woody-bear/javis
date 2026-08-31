@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('jarvis', {
     resolve: (id, action) => ipcRenderer.invoke('reco:resolve', { id, action }),
   },
   bench: {
-    resolve: (id, action) => ipcRenderer.invoke('bench:resolve', { id, action }),
+    resolve: (id, action, comment) => ipcRenderer.invoke('bench:resolve', { id, action, comment }),
   },
   app: {
     toggleFullscreen: () => ipcRenderer.invoke('app:toggleFullscreen'),

@@ -664,7 +664,8 @@ function registerIpc() {
   })
 
   // 🔭 벤치마킹 제안 착수/보류 — 착수 시 메인 문서 '➕ 추가할 기능'에 등재(다음 밤 자율 개선의 근거)
-  ipcMain.handle('bench:resolve', (_e, { id, action }) => {
+  ipcMain.handle('bench:resolve', (_e, { id, action, comment }) => {
+    const note = String(comment || '').trim().slice(0, 2000)   // 착수 시 사용자 추가 지시
     const benchPath = path.join(HUB_DIR, 'night', 'bench', 'bench.json')
     const all = readJson(benchPath, {})
     const b = all[id]
@@ -689,7 +690,7 @@ function registerIpc() {
       if (!b.mainDoc || !fs.existsSync(b.mainDoc)) throw new Error('메인 문서 없음')
       let doc = fs.readFileSync(b.mainDoc, 'utf8')
       const gate = b.gate ? ` 🔴 **확정 게이트 대상 — 야간 무인 실행 금지, 주간 작업으로만** (${b.gate})` : ''
-      const item = `- **[벤치 ${id}] ${b.title}** (${new Date().toISOString().slice(0, 10)} 착수 승인) — ${b.plain}. 🧭 목적 기여: ${b.purposeFit}. 구현 방식: ${b.howBuilt} ([출처](${b.source})). 난이도 ${b.effort}.${gate}`
+      const item = `- **[벤치 ${id}] ${b.title}** (${new Date().toISOString().slice(0, 10)} 착수 승인) — ${b.plain}. 🧭 목적 기여: ${b.purposeFit}. 구현 방식: ${b.howBuilt}${b.source ? ` ([출처](${b.source}))` : ''}. 난이도 ${b.effort}.${note ? ` 💬 **사용자 지시**: ${note}` : ''}${gate}`
       const h = doc.indexOf('## ➕ 추가할 기능')
       if (h === -1) doc = doc.replace(/\s*$/, `\n\n## ➕ 추가할 기능\n\n${item}\n`)
       else {
@@ -700,11 +701,13 @@ function registerIpc() {
         doc = doc.slice(0, bodyStart) + (body ? body + '\n' : '\n') + item + '\n\n' + doc.slice(end).replace(/^\n+/, '')
       }
       fs.writeFileSync(b.mainDoc, doc)
-      b.status = 'accepted'; b.acceptedAt = new Date().toISOString(); writeJson(benchPath, all)
+      b.status = 'accepted'; b.acceptedAt = new Date().toISOString(); if (note) b.userComment = note
+      writeJson(benchPath, all)
       // 🔴 게이트 대상은 등재만(자동 실행 금지) — 나머지는 구현 작업을 앱 작업 큐로 (주간·사용자 참관)
       let queue = null
       if (!b.gate && b.docId) {
         const prompt = `[벤치 ${id}] '${b.title}' 아이디어를 이 프로젝트에 구현하라.\n` +
+          (note ? `💬 사용자 추가 지시 — 최우선으로 반영하라. 아래 제안 내용과 충돌하면 이 지시를 따르라:\n${note}\n` : '') +
           `내용: ${b.plain}\n구현 방법 제안: ${b.howBuilt}\n근거: ${b.evidence || b.source || ''}\n` +
           `규칙: 공통 개선 규칙(docs/공통-개선-규칙.md)과 프로젝트 개선 규칙 문서를 먼저 읽고 따르라. ` +
           `범위 작게, 기존 동작 보존, 검증(문법·빌드·테스트) 통과 후 커밋하라. push 금지. ` +

@@ -480,7 +480,10 @@ function renderBlock(marked, blk, i) {
       }
       if (href.startsWith('jarvis-bench://')) {
         const m = /^jarvis-bench:\/\/(accept|hold)\/(.+)$/.exec(href)
-        if (m) { linkBusy(a, true); resolveBench(decodeURIComponent(m[2]), m[1]).finally(() => linkBusy(a, false)) }
+        if (!m) return
+        const bid = decodeURIComponent(m[2])
+        if (m[1] === 'accept') showAcceptDialog(bid, a)
+        else { linkBusy(a, true); resolveBench(bid, 'hold').finally(() => linkBusy(a, false)) }
         return
       }
       if (href.startsWith('jarvis-')) {   // 미래 버전의 버튼 — 구버전 앱 안내
@@ -1426,8 +1429,31 @@ function showLaunchPopup({ icon, title, lines }) {
   setTimeout(() => { if (document.getElementById('launchPop') === el) close() }, 12_000)
 }
 
-async function resolveBench(id, action) {
-  const res = await window.jarvis.bench.resolve(id, action)
+/** 착수 전 코멘트 입력 — 선택사항·수정 방향을 구현 작업에 최우선 반영 */
+function showAcceptDialog(id, anchor) {
+  document.getElementById('launchPop')?.remove()
+  const el = document.createElement('div')
+  el.id = 'launchPop'
+  el.innerHTML = `<div class="launch-card"><div class="launch-icon">🚀</div>` +
+    `<p class="launch-title">${esc(id)} 착수</p>` +
+    `<p class="launch-line">추가 코멘트 <b>(선택)</b> — 선택사항이나 수정 방향을 적으면 구현 작업에 <b>최우선으로 반영</b>됩니다. 비워두면 제안 그대로 진행합니다.</p>` +
+    `<textarea id="acceptComment" placeholder="예: 표 UI는 기존 스타일 재사용 · 신규 의존성 추가 금지 · 시각은 15:05 말고 14:55로"></textarea>` +
+    `<div class="modal-actions"><button id="acceptCancel">취소</button><button class="primary" id="acceptGo">🚀 착수</button></div></div>`
+  document.body.appendChild(el)
+  const close = () => el.remove()
+  el.addEventListener('click', (e) => { if (e.target === el) close() })
+  el.querySelector('#acceptCancel').addEventListener('click', close)
+  el.querySelector('#acceptGo').addEventListener('click', () => {
+    const comment = el.querySelector('#acceptComment').value.trim()
+    close()
+    linkBusy(anchor, true)
+    resolveBench(id, 'accept', comment).finally(() => linkBusy(anchor, false))
+  })
+  el.querySelector('#acceptComment').focus()
+}
+
+async function resolveBench(id, action, comment) {
+  const res = await window.jarvis.bench.resolve(id, action, comment)
   procNote(res.ok ? 'pl-done' : 'pl-err', `🔭 ${esc(res.msg || '')}`)
   if (res.ok && action === 'accept') {
     if (res.queue) {
@@ -1436,6 +1462,7 @@ async function resolveBench(id, action) {
       showLaunchPopup({
         icon: '🚀', title: `${id} 착수!`,
         lines: [`"${res.title}"`, `메인 문서 '➕ 추가할 기능'에 등재했습니다.`,
+          ...(comment ? [`💬 코멘트 반영: "${comment}"`] : []),
           waiting ? `개선 작업은 진행 중인 작업 ${waiting}건이 끝나는 대로 자동 시작됩니다.` : '개선 작업을 지금 바로 시작합니다 — 진행 상황은 하단 로그에 표시됩니다.',
           '완료되면 결과가 메인 문서 작업 로그에 기록됩니다.'],
       })
@@ -1444,6 +1471,7 @@ async function resolveBench(id, action) {
       showLaunchPopup({
         icon: '🔴', title: `${id} 등재됨 — 사용자 확정 필요`,
         lines: [`"${res.title}"`, `메인 문서 '➕ 추가할 기능'에 등재했습니다.`,
+          ...(comment ? [`💬 코멘트도 함께 등재: "${comment}"`] : []),
           res.gate ? `확정 게이트: ${res.gate}` : '확정 게이트 대상입니다.',
           '자동으로 실행되지 않습니다 — 규칙 문서의 확정 절차(예: "확정 ' + id + '") 후 주간 작업으로 진행하세요.'],
       })

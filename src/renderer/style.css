@@ -337,6 +337,13 @@ a.link-busy { pointer-events: none; animation: linkPulse 0.8s ease-in-out infini
 .launch-title { font-weight: 800; font-size: 16.5px; margin: 12px 0 10px; color: var(--fg-0); }
 .launch-line { margin: 5px 0; font-size: 13px; color: var(--fg-1); line-height: 1.55; }
 .launch-card .modal-actions { justify-content: center; margin-top: 16px; }
+#acceptComment {
+  width: 100%; min-height: 76px; margin-top: 10px; box-sizing: border-box;
+  background: var(--bg-2); color: var(--fg-0); border: 1px solid var(--border);
+  border-radius: 9px; padding: 9px 12px; font-size: 13px; font-family: inherit;
+  resize: vertical; outline: none; text-align: left;
+}
+#acceptComment:focus { border-color: var(--accent); }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes popIn { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes rocketUp { 0% { transform: translateY(26px) scale(0.6); opacity: 0; } 60% { transform: translateY(-6px) scale(1.08); opacity: 1; } 100% { transform: translateY(0) scale(1); } }
