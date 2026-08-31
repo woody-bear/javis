@@ -47,6 +47,8 @@ function getConfig() {
     nightEnabled: true,   // 야간 자율 개선 러너 (launchd 23:00)
     benchEnabled: true,   // 벤치마킹 조사 러너 — 하루 1개 프로젝트 순환 (launchd 22:00)
     nightModel: 'sonnet', // 야간 전용 모델 (비용 절약 기본값)
+    workflowRoot: path.join(os.homedir(), 'workflow'),   // 프로젝트 루트 — 하위 폴더를 자동 추적
+    excludedProjects: [],  // 추적 제외 폴더명 (프로젝트 루트 관리 체크박스)
     ...readJson(CONFIG_PATH, {}),
   }
 }
@@ -757,20 +759,79 @@ function registerIpc() {
     if (r.canceled || !r.filePaths[0]) return getConfig()
     return setConfig({ projectPath: r.filePaths[0] })
   })
+
+  // ── 프로젝트 루트 관리 — 하위 폴더 추적 여부 체크박스 ──
+  const listProjects = () => {
+    const cfg = getConfig()
+    const excluded = new Set(cfg.excludedProjects || [])
+    const pm = readJson(docProjectsPath(), {})
+    const byPath = {}
+    for (const [docId, pp] of Object.entries(pm)) byPath[path.resolve(pp)] = docId
+    const items = []
+    try {
+      for (const name of fs.readdirSync(cfg.workflowRoot)) {
+        if (name.startsWith('.')) continue
+        const proj = path.join(cfg.workflowRoot, name)
+        try { if (!fs.statSync(proj).isDirectory()) continue } catch { continue }
+        items.push({ name, path: proj, tracked: !excluded.has(name), docId: byPath[path.resolve(proj)] || null })
+      }
+    } catch { /* 루트 없음 */ }
+    items.sort((a, b) => a.name.localeCompare(b.name))
+    return { root: cfg.workflowRoot, items }
+  }
+  ipcMain.handle('projects:list', () => listProjects())
+  ipcMain.handle('projects:pickRoot', async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: '프로젝트 루트 폴더 선택' })
+    if (!r.canceled && r.filePaths[0]) { setConfig({ workflowRoot: r.filePaths[0] }); scanWorkflowProjects() }
+    return listProjects()
+  })
+  ipcMain.handle('projects:toggle', (_e, { name, tracked }) => {
+    const cfg = getConfig()
+    const excluded = new Set(cfg.excludedProjects || [])
+    const proj = path.join(cfg.workflowRoot, name)
+    if (tracked) {
+      excluded.delete(name)
+      setConfig({ excludedProjects: [...excluded] })
+      // 기존 메인 문서가 있으면 연결 복원(문서는 지우지 않았으므로), 없으면 스캔이 새로 만든다
+      const pm = readJson(docProjectsPath(), {})
+      if (!Object.values(pm).some((pp) => path.resolve(pp) === path.resolve(proj))) {
+        const roots = docRoots()
+        const tree = readTree()
+        const restore = Object.keys(roots).find((docId) => !tree[docId] &&
+          path.resolve(roots[docId]) === path.resolve(path.join(proj, 'jarvis')) &&
+          fs.existsSync(path.join(roots[docId], docId)))
+        if (restore) { pm[restore] = proj; writeJson(docProjectsPath(), pm) }
+        else scanWorkflowProjects()
+      }
+    } else {
+      excluded.add(name)
+      setConfig({ excludedProjects: [...excluded] })
+      // 연결 해제 — 문서·파일은 보존 (다시 체크하면 복원됨). 야간 러너 대상에서도 빠짐
+      const pm = readJson(docProjectsPath(), {})
+      let changed = false
+      for (const [docId, pp] of Object.entries(pm)) {
+        if (path.resolve(pp) === path.resolve(proj)) { delete pm[docId]; changed = true }
+      }
+      if (changed) writeJson(docProjectsPath(), pm)
+    }
+    return listProjects()
+  })
 }
 
 // ── ~/workflow 프로젝트 자동 스캔 — 새 프로젝트 → 메인 분석 문서 자동 생성 ──
-const WORKFLOW_DIR = path.join(os.homedir(), 'workflow')
 const SCAN_INTERVAL_MS = 10 * 60 * 1000
 
 function scanWorkflowProjects() {
   let created = []
   try {
-    if (!fs.existsSync(WORKFLOW_DIR)) return created
+    const cfg = getConfig()
+    const rootDir = cfg.workflowRoot
+    const excluded = new Set(cfg.excludedProjects || [])
+    if (!rootDir || !fs.existsSync(rootDir)) return created
     const linked = new Set(Object.values(readJson(docProjectsPath(), {})).map((v) => path.resolve(v)))
-    for (const name of fs.readdirSync(WORKFLOW_DIR)) {
-      if (name.startsWith('.')) continue
-      const proj = path.join(WORKFLOW_DIR, name)
+    for (const name of fs.readdirSync(rootDir)) {
+      if (name.startsWith('.') || excluded.has(name)) continue
+      const proj = path.join(rootDir, name)
       try { if (!fs.statSync(proj).isDirectory()) continue } catch { continue }
       if (linked.has(path.resolve(proj))) continue   // 이미 메인 문서가 연결된 프로젝트
       // 메인 문서 생성 → <프로젝트>/jarvis/ 에 배치 + 프로젝트 연결

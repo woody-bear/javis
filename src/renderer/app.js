@@ -761,6 +761,7 @@ function encodeWav16k(float32Chunks, srcRate) {
 async function loadConfig() {
   const cfg = await window.jarvis.config.get()
   $('projPath').textContent = cfg.projectPath
+  $('rootPath').textContent = cfg.workflowRoot || '—'
   $('selModel').value = cfg.model || ''
   $('chkWake').checked = !!cfg.wakeMode
   if (cfg.wakeMode) startWake().catch(() => { $('chkWake').checked = false })
@@ -778,6 +779,46 @@ $('projRow').addEventListener('click', async () => {
   const cfg = await window.jarvis.config.pickProject()
   $('projPath').textContent = cfg.projectPath
 })
+
+// ── 🗂 프로젝트 루트 관리 — 하위 폴더 추적 체크박스 ──
+function renderRootManager(data) {
+  const rows = data.items.map((it) => `
+    <label class="root-item">
+      <input type="checkbox" data-name="${esc(it.name)}" ${it.tracked ? 'checked' : ''}>
+      <span class="root-name">${esc(it.name)}</span>
+      <span class="root-state">${it.tracked ? (it.docId ? '📄 추적 중' : '⏳ 문서 생성 예정') : '제외됨'}</span>
+    </label>`).join('')
+  return `<div class="launch-card root-card">
+    <p class="launch-title">🗂 프로젝트 루트 관리</p>
+    <p class="launch-line root-path" id="rmRoot" title="클릭해서 루트 폴더 변경">${esc(data.root)}</p>
+    <p class="launch-line">체크된 폴더만 프로젝트로 추적합니다 — 메인 문서 자동 생성 · 야간 아이디어 · 벤치마킹 대상</p>
+    <div class="root-list">${rows || '<p class="launch-line">하위 폴더 없음</p>'}</div>
+    <p class="launch-line root-hint">체크 해제해도 문서는 지워지지 않으며, 다시 체크하면 그대로 복원됩니다.</p>
+    <div class="modal-actions"><button class="primary" id="rmClose">닫기</button></div>
+  </div>`
+}
+async function openRootManager() {
+  let data = await window.jarvis.projects.list()
+  document.getElementById('rootPop')?.remove()
+  const el = document.createElement('div')
+  el.id = 'rootPop'
+  const draw = () => {
+    el.innerHTML = renderRootManager(data)
+    $('rootPath').textContent = data.root
+    el.querySelector('#rmClose').addEventListener('click', () => { el.remove(); refreshDocs() })
+    el.querySelector('#rmRoot').addEventListener('click', async () => { data = await window.jarvis.projects.pickRoot(); draw() })
+    for (const cb of el.querySelectorAll('input[type=checkbox]')) {
+      cb.addEventListener('change', async () => {
+        data = await window.jarvis.projects.toggle(cb.dataset.name, cb.checked)
+        draw()
+      })
+    }
+  }
+  draw()
+  el.addEventListener('click', (e) => { if (e.target === el) { el.remove(); refreshDocs() } })
+  document.body.appendChild(el)
+}
+$('rootRow').addEventListener('click', openRootManager)
 
 // ── ESC — 녹음 취소 또는 실행 중 작업 중단 ────────────────────────
 document.addEventListener('keydown', (e) => {

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.woody.jarvis.night</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-i</string>
+    <string>/Users/woody/.nvm/versions/node/v24.14.0/bin/node</string>
+    <string>/Users/woody/workflow/jarvis/scripts/night_runner.js</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/Users/woody/JarvisHub/night/launchd.log</string>
+  <key>StandardErrorPath</key><string>/Users/woody/JarvisHub/night/launchd.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/Users/woody/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+</dict>
+</plist>

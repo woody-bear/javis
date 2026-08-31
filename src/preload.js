@@ -50,4 +50,9 @@ contextBridge.exposeInMainWorld('jarvis', {
     set: (patch) => ipcRenderer.invoke('config:set', patch),
     pickProject: () => ipcRenderer.invoke('config:pickProject'),
   },
+  projects: {
+    list: () => ipcRenderer.invoke('projects:list'),
+    pickRoot: () => ipcRenderer.invoke('projects:pickRoot'),
+    toggle: (name, tracked) => ipcRenderer.invoke('projects:toggle', { name, tracked }),
+  },
 })
