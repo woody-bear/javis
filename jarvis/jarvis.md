@@ -13,7 +13,7 @@ _이 한 문장이 모든 개선의 최종 목표다. 야간 자율 개선과 �
 <!-- TOOLKIT:START -->
 ## 🧩 사용 중인 Skill · Agent · MCP
 
-_자동 스캔 2026-08-30 — .claude/skills·commands·agents, .mcp.json 기준. 야간 러너가 매일 갱신_
+_자동 스캔 2026-09-02 — .claude/skills·commands·agents, .mcp.json 기준. 야간 러너가 매일 갱신_
 
 | 구분 | 사용 중 |
 |------|---------|
@@ -128,6 +128,13 @@ Jarvis는 **음성·텍스트·손 제스처**로 대화하면서, 주제별 마
 
   - `8e0e388` 문서 기능 보드 규칙 — 완성/추가/개선 3섹션 상시 유지 + git 커밋 기반 변화 과정
   </details>
+- **[벤치 I-17] 야간 브리핑에 어젯밤 Claude 실행 비용 표시** — night_runner·bench_runner가 `claude -p` stream-json의 result 이벤트에서 `total_cost_usd`를 함께 저장하고, 야간 브리핑 요약 줄(🌙 아이디어 카운트 줄 · 🔭 목적 줄)에 `💰 오늘 야간 실행 비용 $x.xx` 합계를 표시(비용 0이면 생략). 실행 기록 `night/<날짜>.json`에도 프로젝트별 `cost`가 남아 섹션 복원 시에도 유지.
+  <details><summary>변화 과정</summary>
+
+  - `830ce84` 야간 러너 '개선 아이디어 제안' 전환 — result 이벤트 파싱 구조 도입(비용은 버려짐)
+  - `32ea096` 3단계 벤치마킹 파이프라인 — runStage도 같은 파싱 구조 공유
+  - (2026-09-02, 미커밋) I-17 구현 — runClaude/runStage에 cost 캡처, renderBriefingSection·renderSection에 합계 표시. 검증 완료·커밋 대기
+  </details>
 - **Claude 모델 전역 선택** — 사이드바 드롭다운(기본/Fable/Opus/Sonnet/Haiku). `config.model` → `claude --model` 플래그로 전달, 모든 문서·프로젝트·자동 분석에 동일 적용.
   <details><summary>변화 과정</summary>
 
@@ -148,6 +155,7 @@ Jarvis는 **음성·텍스트·손 제스처**로 대화하면서, 주제별 마
 -   문서 내 검색 / 전체 문서 검색
 -   작업 로그 → git 커밋 자동 생성(옵션)
 -   사이드바·프로젝트 맵에 git/GitHub 연결 상태 뱃지 표시 (🟢 원격 연결 / 🟡 로컬만 / 🔴 없음) + 미연결 프로젝트 원클릭 `gh repo create`
+- **[벤치 I-19] 프로젝트 맵 노드에 착수 대기 건수 배지 추가하기** (2026-09-02 착수 승인) — renderMap()(app.js:1528-1608)의 노드 meta(1595-1599행)는 폴더명·갈래 수·수정 시각만 보여줄 뿐 bench.json의 accepted 건수를 표시하지 않아 맵에서 어떤 프로젝트에 처리할 착수 항목이 쌓여 있는지 알 수 없다. 🧭 목적 기여: '한눈에 보기 좋은' 핵심 화면(프로젝트 맵)에 진행상황 확인 기능을 직접 채운다. 구현 방식: renderMap()이 bench.json을 함께 읽어 루트 노드 meta에 프로젝트별 accepted 건수를 '⏳ 착수 2'처럼 배지로 추가한다. 난이도 중.
 
 ## 🔧 개선할 기능
 
@@ -210,6 +218,8 @@ jarvis/
 - 다음 단계 제안: ① `jarvis`·`Intervelrunner` → `gh repo create woody-bear/<이름> --private --source . --push` ② 나머지 4개 → `git init` 후 동일. (실행은 요청 시 진행 — 외부 공개 작업이라 확인 후 수행)
 
 ## 작업 로그
+
+- **2026-09-02** — [벤치 I-17] 야간 브리핑 Claude 실행 비용 표시 구현 (검증 완료·**커밋 대기** — 공통 규칙 '에이전트 단독 커밋 금지'에 따라 커밋은 사용자 확인 후). 변경: `night_runner.js` runClaude가 result 이벤트의 `total_cost_usd`를 캡처해 프로젝트 결과 `cost`로 저장하고 요약 줄에 `💰 오늘 야간 실행 비용 $x.xx` 합계 표시(0이면 생략, `night/<날짜>.json`에도 기록되어 복원 시 유지) · `bench_runner.js` runStage가 단계별 비용을 누적해 renderSection 목적 줄에 표시(실패 브리핑에도 그 시점까지의 비용 포함). 검증: node --check 2파일 통과 + renderBriefingSection/renderSection 단위 테스트(합산 $0.40 표시 · 0이면 미표시 · 벤치 $1.06 표시) 통과. **근거**: night_runner.js 113~127행·bench_runner.js 72~83행이 `ev.result`만 남기고 같은 이벤트의 `total_cost_usd`를 버려 야간 자동화 비용을 어디서도 확인할 수 없었음 (벤치 I-17, 2026-09-02 착수 승인).
 
 - **2026-08-29** — 사이드바 문서 이름 변경 기능 구현(커밋 `377dd35`). `main.js` `docs:rename` IPC(H1/`<title>` 교체), `preload.js` `docs.rename`, `app.js` ✎ 버튼·더블클릭 인라인 편집(편집 중 드래그/선택 비활성), `style.css` 입력창 스타일.
 
