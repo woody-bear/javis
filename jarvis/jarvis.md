@@ -131,6 +131,13 @@ Jarvis는 **음성·텍스트·손 제스처**로 대화하면서, 주제별 마
   - `32ea096` 벤치마킹 파이프라인 — bench.json에 착수 상태(accepted) 기록 시작
   - (2026-09-02, 미커밋) I-19 구현 — `bench:acceptedCounts` IPC + 맵 루트 노드 `⏳ 착수 n` 배지. 검증 완료·커밋 대기
   </details>
+- **[벤치 I-27] 야간·벤치 러너의 '이전 제안' 목록을 최근 20건으로 제한** — night_runner의 `priorTitles`·bench_runner의 `prior`가 프로젝트별 이력을 `acceptedAt → date` 최신순으로 정렬해 앞 20건(`PRIOR_LIMIT`)만 프롬프트에 주입. bench.json 이력 자체와 신규 아이디어 중복 검사(`seen`)는 전체 이력 기준 그대로 유지.
+  <details><summary>변화 과정</summary>
+
+  - `830ce84` 야간 러너 '아이디어 제안' 전환 — 이력 전체를 "이미 제안된 아이디어"로 프롬프트에 주입하기 시작
+  - `32ea096` 벤치마킹 파이프라인 — 1단계 프롬프트에 프로젝트별 이전 사례 전체 주입
+  - (2026-09-02, 미커밋) I-27 구현 — 두 파일에 `recentPrior()`/`PRIOR_LIMIT=20` 도입, 프롬프트 주입분만 slice. 검증 완료·커밋 대기
+  </details>
 - **Claude 모델 전역 선택** — 사이드바 드롭다운(기본/Fable/Opus/Sonnet/Haiku). `config.model` → `claude --model` 플래그로 전달, 모든 문서·프로젝트·자동 분석에 동일 적용.
   <details><summary>변화 과정</summary>
 
@@ -213,6 +220,8 @@ jarvis/
 - 다음 단계 제안: ① `jarvis`·`Intervelrunner` → `gh repo create woody-bear/<이름> --private --source . --push` ② 나머지 4개 → `git init` 후 동일. (실행은 요청 시 진행 — 외부 공개 작업이라 확인 후 수행)
 
 ## 작업 로그
+
+- **2026-09-02** — [벤치 I-27] 야간·벤치 러너 '이전 제안' 목록 최근 20건 제한 구현 (검증 완료·**커밋 대기** — 공통 규칙 '에이전트 단독 커밋 금지'). 변경: `night_runner.js`·`bench_runner.js`에 `PRIOR_LIMIT = 20`과 `recentPrior(items, limit)`(`acceptedAt` 우선, 없으면 `date` 기준 최신순 정렬 후 slice, 원본 불변)를 두고 `priorTitles`/`prior` 계산부만 이를 거치도록 수정 — bench.json은 손대지 않고, night_runner의 신규 아이디어 중복 검사(`seen`)는 전체 이력 기준 유지. 검증: node --check 2파일 통과 + `recentPrior` 단위 테스트(25건→20건, 착수일 최신 항목 최우선, 가장 오래된 5건 제외, 원본 미변경, 빈 배열/1건 경계) 통과, 실제 bench.json(Intervelrunner 11건)은 20건 미만이라 현재 동작 동일. **근거**: night_runner.js:141-148·bench_runner.js:179-192가 프로젝트별 bench.json 이력 전체(Intervelrunner 11 · trading_view 10 · keyboardwarrior 8 · jarvis 6)를 매일 밤 프롬프트에 통째로 주입해, 하루 최대 3건씩 늘어나는 목록이 끝없이 커짐 (벤치 I-27, 2026-09-02 착수 승인).
 
 - **2026-09-02** — [벤치 I-19] 프로젝트 맵 착수 대기 배지 구현 (검증 완료·**커밋 대기** — 공통 규칙 '에이전트 단독 커밋 금지'). 변경: `main.js`에 `bench:acceptedCounts` IPC(bench.json에서 `status: accepted`를 docId별 집계) · `preload.js` `bench.acceptedCounts` 노출 · `app.js` renderMap()이 건수를 함께 읽어 루트 노드 meta에 `⏳ 착수 n` 배지 표시(IPC 실패 시 `{}` 폴백으로 맵 렌더 보존, 갈래 노드에는 미표시). 검증: node --check 3파일 통과 + 실제 bench.json 집계 테스트(인터벌러너 3 · keyboardwarrior 3 · 추세추종 1 · jarvis 1) 통과. **근거**: renderMap()의 노드 meta가 폴더명·갈래 수·수정 시각만 표시해 맵에서 어떤 프로젝트에 처리할 착수 항목이 쌓여 있는지 알 수 없었음 (src/renderer/app.js 노드 meta 부분, bench.json status:accepted — 벤치 I-19, 2026-09-02 착수 승인).
 

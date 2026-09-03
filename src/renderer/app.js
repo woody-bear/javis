@@ -264,6 +264,7 @@ function reloadFrame() {
 // Cmd+Enter/포커스아웃 저장, ESC 취소. 코드펜스(```)는 한 블록으로 유지.
 let markedMod = null
 let mdBlocks = []          // 현재 문서의 블록(원문 마크다운) 배열
+let mdLoadedText = ''      // 마지막으로 디스크에서 읽은 원문 — 저장 시 외부 갱신과의 충돌 감지용
 let mdEditing = false
 let blockDrag = null       // { from } — 블록 드래그 이동 상태
 
@@ -301,7 +302,16 @@ function splitBlocks(md) {
 
 async function saveBlocks() {
   const content = mdBlocks.join('\n\n') + '\n'
-  await window.jarvis.docs.write(currentDoc, content)
+  const res = await window.jarvis.docs.write(currentDoc, content, mdLoadedText)
+  if (res && res.conflict) {
+    // 야간 러너·착수 버튼·다른 세션이 문서를 먼저 바꿈 — 옛 내용으로 덮어쓰지 않고 최신 내용을 다시 불러온다
+    procNote('pl-err', '⚠️ 문서가 밖에서 갱신되어 이번 편집을 저장하지 않고 최신 내용을 다시 불러왔습니다. 편집을 다시 적용해 주세요.')
+    mdEditing = false
+    await renderMd(currentDoc, true)
+    return false
+  }
+  mdLoadedText = content
+  return true
 }
 
 async function renderMd(id, keepScroll = false) {
@@ -310,6 +320,7 @@ async function renderMd(id, keepScroll = false) {
   const view = $('mdView')
   const scroll = keepScroll ? view.scrollTop : 0
   const md = await window.jarvis.docs.read(id)
+  mdLoadedText = md
   mdBlocks = splitBlocks(md)
   view.innerHTML = ''
   mdBlocks.forEach((blk, i) => view.appendChild(renderBlock(marked, blk, i)))
@@ -1515,10 +1526,11 @@ function relTime(ms) {
 }
 
 async function renderMap() {
-  const [docs, order, projects] = await Promise.all([
+  const [docs, order, projects, benchCounts] = await Promise.all([
     window.jarvis.docs.list(),
     window.jarvis.docs.getOrder(),
     window.jarvis.docs.projectsMap(),
+    window.jarvis.bench.acceptedCounts().catch(() => ({})),
   ])
   const sortGroup = (items, groupKey) => {
     const saved = order[groupKey] || []
@@ -1581,8 +1593,10 @@ async function renderMap() {
     const active = d.id === currentDoc
     const stroke = active ? '#e05a50' : isRoot ? '#d99a3d' : '#3a3733'
     const branchCount = (children.get(d.id) || []).length
+    const pendingStarts = isRoot ? (benchCounts[d.id] || 0) : 0
     const meta = [
       isRoot && projName ? `📁 ${escXml(projName)}` : null,
+      pendingStarts ? `⏳ 착수 ${pendingStarts}` : null,
       branchCount ? `갈래 ${branchCount}` : null,
       relTime(d.mtime),
     ].filter(Boolean).join(' · ')

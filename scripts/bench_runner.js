@@ -29,6 +29,12 @@ const LOCK = path.join(BENCH_DIR, 'lock')
 const DATE = new Date().toISOString().slice(0, 10)
 const STAGE_MS = { 1: 10 * 60_000, 2: 10 * 60_000, 3: 8 * 60_000 }
 const ONLY = process.env.BENCH_ONLY || null
+const PRIOR_LIMIT = 20   // 프롬프트에 넣는 '이전 제안' 최대 건수
+/** 이력 배열을 최근(acceptedAt → date) 순으로 정렬해 앞 limit건만 반환 (원본 배열 불변) */
+function recentPrior(items, limit) {
+  const key = (h) => String(h.acceptedAt || h.date || '')
+  return [...items].sort((a, b) => key(b).localeCompare(key(a))).slice(0, limit)
+}
 
 function readJson(p, fb) { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return fb } }
 function writeJson(p, v) { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(v, null, 2)) }
@@ -63,7 +69,7 @@ function runStage(agentName, prompt, cwd, ms, modelOverride) {
       '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions', '--add-dir', JARVIS_DOCS]
     if (ag.tools.length) args.push('--allowedTools', ...ag.tools, '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'Bash')
     const proc = spawn(findClaude(), args, { cwd, env: process.env })
-    let buf = '', result = ''
+    let buf = '', result = '', cost = 0
     const killer = setTimeout(() => {
       log(`  [${agentName}] 타임박스 초과 → SIGTERM`)
       try { proc.kill('SIGTERM') } catch {}
@@ -75,11 +81,17 @@ function runStage(agentName, prompt, cwd, ms, modelOverride) {
       while ((i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
         if (!line) continue
-        try { const ev = JSON.parse(line); if (ev.type === 'result') result = ev.result || '' } catch {}
+        try {
+          const ev = JSON.parse(line)
+          if (ev.type === 'result') {
+            result = ev.result || ''
+            if (typeof ev.total_cost_usd === 'number') cost = ev.total_cost_usd
+          }
+        } catch {}
       }
     })
-    proc.on('close', (code) => { clearTimeout(killer); resolve({ code, result, model }) })
-    proc.on('error', (e) => { clearTimeout(killer); resolve({ code: -1, result: `실행 실패: ${e.message}`, model }) })
+    proc.on('close', (code) => { clearTimeout(killer); resolve({ code, result, model, cost }) })
+    proc.on('error', (e) => { clearTimeout(killer); resolve({ code: -1, result: `실행 실패: ${e.message}`, model, cost }) })
   })
 }
 
@@ -128,11 +140,13 @@ function prependBriefing(section) {
   const idx = dated ? dated.index : -1
   doc = idx === -1 ? doc.replace(/\s*$/, '\n\n') + section : doc.slice(0, idx + 1) + section + doc.slice(idx + 1)
   fs.writeFileSync(BRIEF_DOC, doc)
+  try { require('./bench_status.js').refresh(BRIEF_DOC) } catch { /* noop */ }
   fs.writeFileSync(path.join(NIGHT_DIR, 'unread'), DATE)
 }
 
-function renderSection(t, purpose, proposals, note) {
-  const head = [`## 🔭 ${DATE} 벤치마킹 제안 — ${t.name}`, '', `🧭 목적: _${purpose}_`, '']
+function renderSection(t, purpose, proposals, note, cost) {
+  const costLine = cost > 0 ? ` · 💰 오늘 야간 실행 비용 $${cost.toFixed(2)}` : ''
+  const head = [`## 🔭 ${DATE} 벤치마킹 제안 — ${t.name}`, '', `🧭 목적: _${purpose}_${costLine}`, '']
   if (note) return [...head, note, '', ''].join('\n')
   if (!proposals.length) return [...head, '- 💤 목적에 기여하는 새 벤치마킹 사례 없음 (근거 없는 제안은 하지 않습니다)', '', ''].join('\n')
   const icon = { recommend: '✅ 추천', hold: '⏸ 보류', gate: '🔴 확정 필요', reject: '❌ 부적합' }
@@ -140,10 +154,11 @@ function renderSection(t, purpose, proposals, note) {
     const btn = p.verdict === 'reject' ? '' :
       ` <!--BENCH:${p.id}--> [🚀 착수](jarvis-bench://accept/${encodeURIComponent(p.id)}) · [⏸ 보류](jarvis-bench://hold/${encodeURIComponent(p.id)})`
     return [
-      `- **${p.id} · ${p.title}** — ${p.plain}${btn}`,
-      `  - **🧭 목적 기여**: ${p.purposeFit}${p.fitLevel ? ` (${p.fitLevel})` : ''}`,
-      `  - **어떻게 만들었나**: ${p.howBuilt} — [출처](${p.source})`,
-      `  - **판정**: ${icon[p.verdict] || p.verdict} · 난이도 ${p.effort}${p.gate ? ` · 🔴 ${p.gate}` : ''} — ${p.reason}`,
+      `- **${p.id} · ${p.title}**${btn}`,
+      `  - 🔍 **문제**: ${p.problem || p.plain}`,
+      `  - 🛠 **해결**: ${p.solution || p.howBuilt} — [출처](${p.source})`,
+      `  - 🎯 **효과**: ${p.effect || p.purposeFit}${p.fitLevel ? ` (${p.fitLevel})` : ''}`,
+      `  - ⚖️ **판정**: ${icon[p.verdict] || p.verdict} · 난이도 ${p.effort}${p.gate ? ` · 🔴 ${p.gate}` : ''} — ${p.reason}`,
     ].join('\n')
   })
   return [...head, ...lines, '', '_🚀 착수 → "➕ 추가할 기능" 등재 후 개선 작업이 바로 시작됩니다. 🔴 확정 필요 항목은 등재만 되며, 확정 절차 후 주간 작업으로 진행됩니다._', '', ''].join('\n')
@@ -168,7 +183,9 @@ async function main() {
     const outDir = path.join(BENCH_DIR, DATE, t.name)
     fs.mkdirSync(outDir, { recursive: true })
     const history = readJson(path.join(BENCH_DIR, 'bench.json'), {})
-    const prior = Object.values(history).filter((h) => h.project === t.name).map((h) => `${h.title} (${h.source})`)
+    let totalCost = 0
+    // 프롬프트에는 최근 PRIOR_LIMIT건만 주입 (bench.json 이력 자체는 그대로 보존)
+    const prior = recentPrior(Object.values(history).filter((h) => h.project === t.name), PRIOR_LIMIT).map((h) => `${h.title} (${h.source})`)
 
     // ── 1단계 조사 ──
     const s1Path = path.join(outDir, 'stage1.json')
@@ -180,13 +197,14 @@ async function main() {
         `메인 문서: ${t.mainDoc} — '➕ 추가할 기능'·'🔧 개선할 기능'에서 구체 키워드를 뽑아라.`,
         prior.length ? `이미 제안된 사례(제외): ${prior.join('; ')}` : '',
       ].filter(Boolean).join('\n'), t.proj, STAGE_MS[1])
+      totalCost += r.cost || 0
       s1 = parseJson(r.result)
-      if (!s1 || !Array.isArray(s1.cases)) { log(`1단계 실패 (code ${r.code})`); prependBriefing(renderSection(t, purpose, [], `- ❌ 1단계(사례 조사) 실패 — 로그 ${path.join(BENCH_DIR, DATE + '.log')}`)); return }
+      if (!s1 || !Array.isArray(s1.cases)) { log(`1단계 실패 (code ${r.code})`); prependBriefing(renderSection(t, purpose, [], `- ❌ 1단계(사례 조사) 실패 — 로그 ${path.join(BENCH_DIR, DATE + '.log')}`, totalCost)); return }
       s1.cases = s1.cases.filter((c) => c && c.title && /^https?:\/\//.test(c.source || ''))
       writeJson(s1Path, s1)
     }
     log(`1단계 완료 — 사례 ${s1.cases.length}건`)
-    if (!s1.cases.length) { prependBriefing(renderSection(t, purpose, [])); return }
+    if (!s1.cases.length) { prependBriefing(renderSection(t, purpose, [], null, totalCost)); return }
 
     // ── 2단계 분석 ──
     const s2Path = path.join(outDir, 'stage2.json')
@@ -197,8 +215,9 @@ async function main() {
         `🧭 프로젝트 목적(한 문장): "${purpose}"`,
         `1단계 사례:\n${JSON.stringify(s1.cases, null, 2)}`,
       ].join('\n'), t.proj, STAGE_MS[2])
+      totalCost += r.cost || 0
       s2 = parseJson(r.result)
-      if (!s2 || !Array.isArray(s2.analyses)) { log(`2단계 실패 (code ${r.code})`); prependBriefing(renderSection(t, purpose, [], `- ❌ 2단계(구현 분석) 실패 — 1단계 결과는 ${s1Path} 에 보존, 다음 실행 시 재개`)); return }
+      if (!s2 || !Array.isArray(s2.analyses)) { log(`2단계 실패 (code ${r.code})`); prependBriefing(renderSection(t, purpose, [], `- ❌ 2단계(구현 분석) 실패 — 1단계 결과는 ${s1Path} 에 보존, 다음 실행 시 재개`, totalCost)); return }
       writeJson(s2Path, s2)
     }
     log(`2단계 완료 — 분석 ${s2.analyses.length}건`)
@@ -210,12 +229,13 @@ async function main() {
       const r = await runStage('fit-judge', [
         `프로젝트 '${t.name}' (경로 ${t.proj}) 의 벤치마킹 제안 적합성을 판정하라.`,
         `🧭 프로젝트 목적(한 문장): "${purpose}" — 판정의 최우선 기준.`,
-        fs.existsSync(COMMON_RULE_DOC) ? `공통 개선 규칙: ${COMMON_RULE_DOC} (먼저 읽어라)` : '',
+        fs.existsSync(COMMON_RULE_DOC) ? `공통 개선 규칙: ${COMMON_RULE_DOC} (먼저 읽어라 — 특히 '📝 브리핑 문구 규칙': 제목 동작형, problem/solution/effect 세 문장 필수)` : '',
         t.ruleDoc ? `프로젝트 개선 규칙: ${t.ruleDoc} ('🚫 손대면 안 되는 것'·확정 게이트 확인)` : '',
         `2단계 분석:\n${JSON.stringify(s2.analyses, null, 2)}`,
       ].filter(Boolean).join('\n'), t.proj, STAGE_MS[3], cfg.benchJudgeModel || null)
+      totalCost += r.cost || 0
       s3 = parseJson(r.result)
-      if (!s3 || !Array.isArray(s3.proposals)) { log(`3단계 실패 (code ${r.code})`); prependBriefing(renderSection(t, purpose, [], `- ❌ 3단계(적합성 판정) 실패 — 1·2단계 결과는 ${outDir} 에 보존, 다음 실행 시 재개`)); return }
+      if (!s3 || !Array.isArray(s3.proposals)) { log(`3단계 실패 (code ${r.code})`); prependBriefing(renderSection(t, purpose, [], `- ❌ 3단계(적합성 판정) 실패 — 1·2단계 결과는 ${outDir} 에 보존, 다음 실행 시 재개`, totalCost)); return }
       writeJson(s3Path, s3)
     }
 
@@ -230,12 +250,13 @@ async function main() {
       proposals.push(rec)
     }
     writeJson(path.join(BENCH_DIR, 'bench.json'), history)
-    prependBriefing(renderSection(t, purpose, proposals))
-    log(`3단계 완료 — 제안 ${proposals.length}건, 브리핑 작성`)
+    prependBriefing(renderSection(t, purpose, proposals, null, totalCost))
+    log(`3단계 완료 — 제안 ${proposals.length}건, 브리핑 작성 (비용 $${totalCost.toFixed(2)})`)
   } finally {
     try { fs.unlinkSync(LOCK) } catch {}
   }
 }
 
 if (require.main === module) main().catch((e) => { log(`치명적 오류: ${e.stack || e}`); process.exitCode = 1 })
+module.exports = { renderSection, prependBriefing }
 module.exports = { loadAgent, parseJson, renderSection, pickProject }

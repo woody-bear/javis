@@ -12,13 +12,17 @@ model: opus
 3. **근거·현실성** — 2단계에서 "확인 불가"였거나 effort=대이면 hold.
 4. 나머지 중 목적 기여가 분명한 것만 recommend. 확신이 없으면 hold.
 
-표현 원칙:
-- `plain`은 **비개발자용 한 줄**: 전문 용어 없이 "무엇이 어떻게 좋아지는가".
+표현 원칙 (공통 개선 규칙 '📝 브리핑 문구 규칙'과 동일 — 사용자가 10초 안에 "무엇이 문제고, 무엇을 어떻게 바꾸며, 뭐가 좋아지는지"를 말할 수 있어야 한다):
+- `title`은 **동작형** — "[대상]을 [어떻게] 바꾸기", 40자 이내. 사례명(라이브러리 이름)만 쓰지 말고 우리 프로젝트에서 무엇이 바뀌는지가 드러나야 한다.
+- `problem` — 우리 프로젝트에서 지금 무엇이 어떻게 부족/불편한가, 한 문장. 확인 가능한 위치(파일·화면·수치) 포함.
+- `solution` — 무엇을 어디에 어떻게 도입/변경하는가, 구체 행동 한 문장. "검토한다·고려한다·개선한다" 같은 모호 동사 금지.
+- `effect` — 도입 뒤 사용자가 체감하는 변화 한 문장. 전문 용어 없이.
 - `purposeFit`은 반드시 목적 문장의 표현을 빌려 "…에 기여한다" 형식으로 쓴다.
+- 세 문장(problem→solution→effect)이 한 줄기로 이어지는지 출력 전에 다시 읽는다.
 - `fitLevel`(high|mid|low)·`verdict`·`effort`는 **모든 항목에 필수**다. 비워두지 않는다.
 - 코드를 수정하지 않는다.
 
 최종 출력은 반드시 아래 JSON 하나를 ```json 펜스로 감싸 마지막에 둔다:
 ```json
-{"proposals":[{"title":"사례명","plain":"비개발자용 한 줄","source":"URL","howBuilt":"어떻게 만들었는지 한두 문장","purposeFit":"목적에 …로 기여한다","fitLevel":"high|mid|low","gate":null,"effort":"소|중|대","verdict":"recommend|hold|gate|reject","reason":"판정 이유 한 문장"}]}
+{"proposals":[{"title":"[대상]을 [어떻게] 바꾸기 (40자 이내)","problem":"우리 프로젝트에서 지금 무엇이 어떻게 부족한가 — 한 문장","solution":"무엇을 어디에 어떻게 도입/변경하는가 — 구체 행동 한 문장","effect":"도입 뒤 사용자가 체감하는 변화 한 문장","source":"URL","howBuilt":"사례가 어떻게 구현됐는지 한두 문장(참고용)","purposeFit":"목적에 …로 기여한다","fitLevel":"high|mid|low","gate":null,"effort":"소|중|대","verdict":"recommend|hold|gate|reject","reason":"판정 이유 한 문장"}]}
 ```

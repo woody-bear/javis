@@ -526,8 +526,15 @@ function registerIpc() {
     fs.writeFileSync(f, src)
     return { ok: true, title: t }
   })
-  ipcMain.handle('docs:write', (_e, { id, content }) => {
-    fs.writeFileSync(docFile(id), content)
+  ipcMain.handle('docs:write', (_e, { id, content, base }) => {
+    const file = docFile(id)
+    // 충돌 방지: 렌더러가 불러온 시점의 내용(base)과 디스크가 다르면(야간 러너·착수 버튼·다른 세션 등 외부 갱신)
+    // 옛 내용으로 덮어쓰지 않고 충돌을 알린다 → 렌더러가 최신 내용을 다시 불러온다
+    if (typeof base === 'string' && fs.existsSync(file)) {
+      const disk = fs.readFileSync(file, 'utf8')
+      if (disk !== base && disk !== content) return { ok: false, conflict: true }
+    }
+    fs.writeFileSync(file, content)
     return { ok: true }
   })
   // 레거시 HTML 문서 → Markdown 전환 (블록 편집용). content = 변환된 md.
@@ -595,7 +602,10 @@ function registerIpc() {
 
   ipcMain.handle('chat:send', async (e, { docId, text }) => {
     try {
-      return await runClaude(docId, text, e.sender)
+      const r = await runClaude(docId, text, e.sender)
+      // 🚀 착수 현황 갱신 — 구현 작업이 [벤치 ID]를 메인 문서 '✅ 완성된 기능'으로 옮겼으면 '착수 완료'로 승격
+      try { require(path.join(__dirname, '..', 'scripts', 'bench_status.js')).refresh(path.join(docsDir(), '야간-브리핑.md')) } catch { /* noop */ }
+      return r
     } catch (err) {
       return { ok: false, text: (err && err.message) || '실행 실패' }
     }
@@ -663,6 +673,16 @@ function registerIpc() {
     return { ok: true, queue: docId ? { id: docId, docId, name: `${r.type} ${r.name} 설치`, prompt } : null, msg: `승인 — 설치 작업을 큐에 넣었습니다` }
   })
 
+  // 프로젝트(문서 id)별 착수 대기(accepted) 건수 — 프로젝트 맵 배지용
+  ipcMain.handle('bench:acceptedCounts', () => {
+    const all = readJson(path.join(HUB_DIR, 'night', 'bench', 'bench.json'), {})
+    const counts = {}
+    for (const b of Object.values(all)) {
+      if (b && b.status === 'accepted' && b.docId) counts[b.docId] = (counts[b.docId] || 0) + 1
+    }
+    return counts
+  })
+
   // 🔭 벤치마킹 제안 착수/보류 — 착수 시 메인 문서 '➕ 추가할 기능'에 등재(다음 밤 자율 개선의 근거)
   ipcMain.handle('bench:resolve', (_e, { id, action, comment }) => {
     const note = String(comment || '').trim().slice(0, 2000)   // 착수 시 사용자 추가 지시
@@ -682,15 +702,18 @@ function registerIpc() {
         fs.writeFileSync(briefDoc, doc)
       } catch { /* noop */ }
     }
+    const refreshStatus = () => { try { require(path.join(__dirname, '..', 'scripts', 'bench_status.js')).refresh(briefDoc) } catch { /* noop */ } }
     if (action === 'hold') {
-      b.status = 'held'; writeJson(benchPath, all); rewriteLine('⏸ 보류됨')
+      b.status = 'held'; writeJson(benchPath, all); rewriteLine('⏸ 보류됨'); refreshStatus()
       return { ok: true, msg: `보류: ${b.title}` }
     }
     try {
       if (!b.mainDoc || !fs.existsSync(b.mainDoc)) throw new Error('메인 문서 없음')
       let doc = fs.readFileSync(b.mainDoc, 'utf8')
       const gate = b.gate ? ` 🔴 **확정 게이트 대상 — 야간 무인 실행 금지, 주간 작업으로만** (${b.gate})` : ''
-      const item = `- **[벤치 ${id}] ${b.title}** (${new Date().toISOString().slice(0, 10)} 착수 승인) — ${b.plain}. 🧭 목적 기여: ${b.purposeFit}. 구현 방식: ${b.howBuilt}${b.source ? ` ([출처](${b.source}))` : ''}. 난이도 ${b.effort}.${note ? ` 💬 **사용자 지시**: ${note}` : ''}${gate}`
+      // 📝 브리핑 문구 규칙(공통 개선 규칙): 문제 → 해결 → 효과 세 문장 구조로 등재
+      const problem = b.problem || b.plain, solution = b.solution || b.howBuilt, effect = b.effect || b.purposeFit
+      const item = `- **[벤치 ${id}] ${b.title}** (${new Date().toISOString().slice(0, 10)} 착수 승인) — 🔍 문제: ${problem} 🛠 해결: ${solution}${b.source ? ` ([출처](${b.source}))` : ''} 🎯 효과: ${effect} · 난이도 ${b.effort}.${note ? ` 💬 **사용자 지시**: ${note}` : ''}${gate}`
       const h = doc.indexOf('## ➕ 추가할 기능')
       if (h === -1) doc = doc.replace(/\s*$/, `\n\n## ➕ 추가할 기능\n\n${item}\n`)
       else {
@@ -708,13 +731,14 @@ function registerIpc() {
       if (!b.gate && b.docId) {
         const prompt = `[벤치 ${id}] '${b.title}' 아이디어를 이 프로젝트에 구현하라.\n` +
           (note ? `💬 사용자 추가 지시 — 최우선으로 반영하라. 아래 제안 내용과 충돌하면 이 지시를 따르라:\n${note}\n` : '') +
-          `내용: ${b.plain}\n구현 방법 제안: ${b.howBuilt}\n근거: ${b.evidence || b.source || ''}\n` +
+          `문제: ${problem}\n해결(구현 방법 제안): ${solution}\n기대 효과: ${effect}\n근거: ${b.evidence || b.source || ''}\n` +
           `규칙: 공통 개선 규칙(docs/공통-개선-규칙.md)과 프로젝트 개선 규칙 문서를 먼저 읽고 따르라. ` +
           `범위 작게, 기존 동작 보존, 검증(문법·빌드·테스트) 통과 후 커밋하라. push 금지. ` +
           `완료 후 메인 문서 '➕ 추가할 기능'의 [벤치 ${id}] 항목을 '✅ 완성된 기능'으로 옮기고 작업 로그에 근거와 함께 기록하라.`
         queue = { id: b.docId, docId: b.docId, name: `${id} ${b.title} 구현`, prompt }
       }
       rewriteLine(queue ? '🚀 착수 — 등재 + 구현 작업 시작됨' : '🚀 착수 — 등재됨 (🔴 확정 게이트: 자동 실행 없음)')
+      refreshStatus()
       return { ok: true, queue, gate: b.gate || null, title: b.title, project: b.project,
         msg: `착수: ${b.title} → '➕ 추가할 기능' 등재${queue ? ' + 구현 작업 큐 추가' : ''}` }
     } catch (e) {
@@ -883,14 +907,21 @@ app.whenReady().then(() => {
   ensureDirs()
   registerIpc()
   createWindow()
+  // 🚀 착수 승인/완료 현황을 브리핑 문서 상단에 갱신 (앱 밖에서 문서가 바뀌었을 수 있음)
+  try { require(path.join(__dirname, '..', 'scripts', 'bench_status.js')).refresh(path.join(docsDir(), '야간-브리핑.md')) } catch { /* noop */ }
   // 아침 브리핑: 야간 러너의 미확인 플래그 감지 → 렌더러에 알림
-  setTimeout(() => {
+  // 앱을 며칠씩 켜 두는 경우가 많아 시작 시 1회가 아니라 1분마다 확인한다 (같은 날짜는 1회만 알림)
+  let notifiedNight = null
+  const checkNightBriefing = () => {
     const flag = path.join(HUB_DIR, 'night', 'unread')
-    if (fs.existsSync(flag) && win && !win.isDestroyed()) {
-      const date = fs.readFileSync(flag, 'utf8').trim()
-      win.webContents.send('night:briefing', { date })
-    }
-  }, 2000)
+    if (!fs.existsSync(flag) || !win || win.isDestroyed()) return
+    const date = fs.readFileSync(flag, 'utf8').trim()
+    if (!date || date === notifiedNight) return
+    notifiedNight = date
+    win.webContents.send('night:briefing', { date })
+  }
+  setTimeout(checkNightBriefing, 2000)
+  setInterval(checkNightBriefing, 60_000)
   // 앱 시작 3초 후 + 주기적으로 workflow 프로젝트 스캔
   setTimeout(scanWorkflowProjects, 3000)
   setInterval(scanWorkflowProjects, SCAN_INTERVAL_MS)

@@ -82,8 +82,16 @@ function ensurePurpose(docPath) {
 function readPurpose(docPath) {
   try {
     const doc = fs.readFileSync(docPath, 'utf8')
-    const si = doc.indexOf(P_START), ei = doc.indexOf(P_END)
-    if (si === -1 || ei === -1) return null
+    let si = doc.indexOf(P_START), ei = doc.indexOf(P_END)
+    // 편집기(WYSIWYG) 저장 시 HTML 주석 마커가 사라질 수 있음 → 목적 헤딩을 기준으로 다음 헤딩/마커까지를 블록으로 본다
+    const hi = doc.indexOf('## 🧭 프로젝트 목적', si === -1 ? 0 : si)
+    if (si === -1) si = hi
+    if (si === -1) return null
+    if (ei === -1 || ei < si) {
+      const from = hi === -1 ? si + 1 : hi + 1
+      const m2 = /\n(?:## |<!-- TOOLKIT:START -->)/.exec(doc.slice(from))
+      ei = m2 ? from + m2.index : doc.length
+    }
     const m = /^>\s*(.+)$/m.exec(doc.slice(si, ei))
     if (!m) return null
     const t = m[1].trim()

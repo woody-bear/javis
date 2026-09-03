@@ -54,6 +54,13 @@ function findClaude() {
   return 'claude'
 }
 
+const PRIOR_LIMIT = 20   // 프롬프트에 넣는 '이전 제안' 최대 건수 — 매일 최대 3건씩 늘어나는 목록의 무한 성장 방지
+/** 이력 배열을 최근(acceptedAt → date) 순으로 정렬해 앞 limit건만 반환 (원본 배열 불변) */
+function recentPrior(items, limit) {
+  const key = (h) => String(h.acceptedAt || h.date || '')
+  return [...items].sort((a, b) => key(b).localeCompare(key(a))).slice(0, limit)
+}
+
 function nightPrompt(projName, mainDocPath, ruleDocPath, commonRulePath, purpose, priorTitles) {
   const hasCommon = commonRulePath && fs.existsSync(commonRulePath)
   return [
@@ -70,10 +77,15 @@ function nightPrompt(projName, mainDocPath, ruleDocPath, commonRulePath, purpose
     '절차:',
     '1) 코드·git 로그·문서를 훑어 실제 문제·불편·위험·기회를 찾는다. 오늘은 이전과 다른 각도(예: 성능/안정성/사용성/비용/테스트/운영/데이터 중 이전에 안 다룬 영역)에서 본다.',
     `2) 목적에 기여하고 근거가 분명한 아이디어를 최대 ${MAX_IDEAS}건 고른다. 없으면 0건 — 억지로 채우지 마라. 근거는 파일 경로·함수명·로그 등 확인 가능한 것이어야 한다.`,
-    '3) 각 아이디어를 비개발자도 10초 안에 이해할 수 있게 쓴다.',
+    '3) 📝 문구 규칙 — 비개발자가 10초 안에 "무엇이 문제고, 무엇을 어떻게 바꾸며, 그러면 뭐가 좋아지는지"를 말할 수 있어야 한다:',
+    '   - title: "[대상]을 [어떻게] 바꾸기" 형태의 동작형 제목, 40자 이내. 결과가 드러나야 한다 (나쁜 예: "…로직", "…없음" 같은 명사형 문제 제기만).',
+    '   - problem: 지금 무엇이 어떻게 잘못/불편한가 — 파일:줄·화면·수치를 포함해 한 문장. "~일 수 있다"로 끝나는 추측만 있는 문장은 금지.',
+    '   - solution: 무엇을 어디에서 어떻게 바꾸는가 — 구체 행동 한 문장. "검토한다·고려한다·개선한다·방안을 찾는다" 같은 모호 동사 금지. 해결책을 못 쓰면 그 아이디어는 내지 마라.',
+    '   - effect: 바꾼 뒤 사용자가 체감하는 변화 한 문장.',
+    '   - 출력 전에 각 항목을 다시 읽고 위 세 문장이 서로 따로 놀지 않는지(문제→해결→효과가 한 줄기인지) 확인하라.',
     '4) 마지막에 반드시 아래 JSON 하나를 ```json 펜스로 감싸 출력하라:',
     '```json',
-    '{"ideas":[{"title":"아이디어 제목","plain":"비개발자용 한 줄 — 무엇이 어떻게 좋아지는가","purposeFit":"목적 문장에 …로 기여한다","howBuilt":"어떻게 구현할지 한두 문장 (관련 파일 경로 포함)","evidence":"근거 — 파일/함수/로그","effort":"소|중|대","gate":null,"verdict":"recommend|gate","angle":"오늘 본 영역 (성능/안정성/사용성/비용/테스트/운영/데이터 등)"}]}',
+    '{"ideas":[{"title":"[대상]을 [어떻게] 바꾸기 (40자 이내)","problem":"지금 무엇이 어떻게 잘못/불편한가 — 파일:줄·화면·수치 포함 한 문장","solution":"무엇을 어디서 어떻게 바꾸는가 — 구체 행동 한 문장","effect":"바꾼 뒤 사용자가 체감하는 변화 한 문장","purposeFit":"목적 문장에 …로 기여한다","evidence":"근거 — 파일/함수/로그","effort":"소|중|대","gate":null,"verdict":"recommend|gate","angle":"오늘 본 영역 (성능/안정성/사용성/비용/테스트/운영/데이터 등)"}]}',
     '```',
     '5) (별개) 이 프로젝트에 실질적으로 도움이 될 Claude Code용 skill/agent/MCP가 있으면 최대 2개까지 추천하라.',
     '   이미 설치된 것(메인 문서 상단 🧩 표)은 제외. 확신 없으면 추천하지 마라. 각 추천은 정확히 한 줄 JSON으로:',
@@ -100,6 +112,7 @@ function runClaude(projPath, prompt, model) {
     const proc = spawn(findClaude(), args, { cwd: projPath, env: process.env })
     let buf = ''
     let result = ''
+    let cost = 0
     const killer = setTimeout(() => {
       log(`  타임박스 초과 → SIGTERM`)
       try { proc.kill('SIGTERM') } catch {}
@@ -114,12 +127,15 @@ function runClaude(projPath, prompt, model) {
         if (!line) continue
         try {
           const ev = JSON.parse(line)
-          if (ev.type === 'result') result = ev.result || ''
+          if (ev.type === 'result') {
+            result = ev.result || ''
+            if (typeof ev.total_cost_usd === 'number') cost = ev.total_cost_usd
+          }
         } catch {}
       }
     })
-    proc.on('close', (code) => { clearTimeout(killer); resolve({ code, result }) })
-    proc.on('error', (e) => { clearTimeout(killer); resolve({ code: -1, result: `실행 실패: ${e.message}` }) })
+    proc.on('close', (code) => { clearTimeout(killer); resolve({ code, result, cost }) })
+    proc.on('error', (e) => { clearTimeout(killer); resolve({ code: -1, result: `실행 실패: ${e.message}`, cost }) })
   })
 }
 
@@ -131,7 +147,9 @@ async function processProject(name, projPath, mainDocPath, ruleDocPath, model, d
   }
   // 이력: 이 프로젝트에 이미 제안된 아이디어 제목 (매일 달라야 함)
   const history = readJson(IDEAS_PATH, {})
-  const priorTitles = Object.values(history).filter((h) => h.project === name).map((h) => `${h.title}${h.angle ? ` [${h.angle}]` : ''}`)
+  // 프롬프트에는 최근 PRIOR_LIMIT건만 주입 (이력 자체는 보존 — 중복 검사(seen)는 전체 이력 기준)
+  const priorTitles = recentPrior(Object.values(history).filter((h) => h.project === name), PRIOR_LIMIT)
+    .map((h) => `${h.title}${h.angle ? ` [${h.angle}]` : ''}`)
   const headBefore = trySh('git rev-parse HEAD', projPath)
   const dirtyBefore = trySh('git status --porcelain', projPath)
 
@@ -152,7 +170,7 @@ async function processProject(name, projPath, mainDocPath, ruleDocPath, model, d
     } catch {}
   }
   const raw = parseIdeas(out.result)
-  if (!raw) return { name, projPath, status: 'fail', reason: `아이디어 JSON 파싱 실패 (종료코드 ${out.code})`, recos, touched }
+  if (!raw) return { name, projPath, status: 'fail', reason: `아이디어 JSON 파싱 실패 (종료코드 ${out.code})`, recos, touched, cost: out.cost || 0 }
 
   // 중복 제거(제목 정규화) + 이력 저장 — 벤치 제안과 같은 I/B 번호 체계·착수 버튼 공유
   const norm = (t) => String(t || '').toLowerCase().replace(/[^\w가-힣]/g, '')
@@ -160,69 +178,112 @@ async function processProject(name, projPath, mainDocPath, ruleDocPath, model, d
   const ideas = []
   let n = Object.keys(history).filter((k) => k.startsWith('I-')).length
   for (const i of raw.slice(0, MAX_IDEAS)) {
-    if (!i || !i.title || !i.plain || seen.has(norm(i.title))) continue
+    const problem = i && (i.problem || i.plain)
+    const solution = i && (i.solution || i.howBuilt)
+    if (!i || !i.title || !problem || !solution || seen.has(norm(i.title))) continue   // 문제·해결이 모두 있어야 채택
     seen.add(norm(i.title))
     const id = `I-${++n}`
     const rec = { id, date: DATE, project: name, projPath, docId, mainDoc: mainDocPath, source: null,
-      title: i.title, plain: i.plain, purposeFit: i.purposeFit || '', howBuilt: i.howBuilt || '', evidence: i.evidence || '',
+      title: i.title, problem, solution, effect: i.effect || '', plain: problem, purposeFit: i.purposeFit || '', howBuilt: solution, evidence: i.evidence || '',
       effort: i.effort || '?', gate: i.gate || null, verdict: i.gate ? 'gate' : 'recommend', angle: i.angle || '', status: 'pending' }
     history[id] = rec; ideas.push(rec)
   }
   fs.mkdirSync(path.dirname(IDEAS_PATH), { recursive: true })
   fs.writeFileSync(IDEAS_PATH, JSON.stringify(history, null, 2))
-  return { name, projPath, status: ideas.length ? 'done' : 'none', reason: ideas.length ? `아이디어 ${ideas.length}건` : '오늘은 새 아이디어 없음 (근거 있는 제안만 냅니다)', purpose, ideas, recos, touched }
+  return { name, projPath, status: ideas.length ? 'done' : 'none', reason: ideas.length ? `아이디어 ${ideas.length}건` : '오늘은 새 아이디어 없음 (근거 있는 제안만 냅니다)', purpose, ideas, recos, touched, cost: out.cost || 0 }
 }
 
-function writeBriefing(results) {
+const recoId = (date, r, rec) => `${date}-${r.name}-${rec.type}-${rec.name}`.replace(/[^\w가-힣.-]/g, '_')
+const recoStatusText = (st) => ({ installed: '✅ 설치됨', approved: '✅ 승인 — 설치 작업 실행', rejected: '❌ 거부됨' })[st] || st
+
+/** 야간 브리핑 섹션 렌더 — 순수 함수(파일을 쓰지 않음). 사라진 날짜 섹션을 실행 기록(JSON)으로 복원할 때도 사용.
+ *  bench.json / recos.json 상태가 pending 이 아니면 버튼 대신 상태 텍스트를 표시한다. */
+function renderBriefingSection(results, date, { recosAll = {}, benchAll = {} } = {}) {
   const icons = { done: '💡', none: '💤', skip: '⏭', fail: '❌' }
+  const benchTail = (p) => {
+    const b = benchAll[p.id]
+    const st = b && b.status
+    if (st === 'implemented') return `<!--BENCH:${p.id}--> **🏁 착수 완료**`
+    if (st === 'accepted') return `<!--BENCH:${p.id}--> **🚀 착수 — 등재됨${b.confirmedAt ? ' · 확정' : (b.gate ? ' (🔴 확정 게이트: 자동 실행 없음)' : ' + 구현 작업 시작됨')}**`
+    if (st === 'held') return `<!--BENCH:${p.id}--> **⏸ 보류됨**`
+    return `<!--BENCH:${p.id}--> [🚀 착수](jarvis-bench://accept/${encodeURIComponent(p.id)}) · [⏸ 보류](jarvis-bench://hold/${encodeURIComponent(p.id)})`
+  }
   const lines = results.map((r) => {
     const warn = r.touched ? ' ⚠️ _실행 중 작업트리 변화 감지 — 확인 필요_' : ''
-    const head = `- ${icons[r.status]} **${r.name}** — ${r.reason}${warn}${r.purpose ? `\n  🧭 _${r.purpose}_` : ''}`
+    const head = `- ${icons[r.status] || '•'} **${r.name}** — ${r.reason}${warn}${r.purpose ? `\n  🧭 _${r.purpose}_` : ''}`
     if (r.status !== 'done') return head
-    const items = r.ideas.map((p) => [
-      `  - **${p.id} · ${p.title}** — ${p.plain} <!--BENCH:${p.id}--> [🚀 착수](jarvis-bench://accept/${encodeURIComponent(p.id)}) · [⏸ 보류](jarvis-bench://hold/${encodeURIComponent(p.id)})`,
-      `    - **🧭 목적 기여**: ${p.purposeFit}`,
-      `    - **어떻게**: ${p.howBuilt}`,
-      `    - **근거**: ${p.evidence} · 난이도 ${p.effort}${p.angle ? ` · 관점 ${p.angle}` : ''}${p.gate ? ` · 🔴 확정 필요 — ${p.gate}` : ''}`,
-    ].join('\n'))
+    const items = (r.ideas || []).map((p0) => {
+      const p = { ...p0, ...(benchAll[p0.id] || {}) }   // bench.json 의 최신 문구(재작성 포함) 우선
+      const problem = p.problem || p.plain
+      const solution = p.solution || p.howBuilt
+      return [
+        `  - **${p.id} · ${p.title}** ${benchTail(p)}`,
+        `    - 🔍 **문제**: ${problem}`,
+        `    - 🛠 **해결**: ${solution}`,
+        ...(p.effect ? [`    - 🎯 **효과**: ${p.effect}`] : []),
+        `    - 📎 근거: ${p.evidence || '-'} · 🧭 ${p.purposeFit || '-'} · 난이도 ${p.effort}${p.angle ? ` · 관점 ${p.angle}` : ''}${p.gate ? ` · 🔴 확정 필요 — ${p.gate}` : ''}`,
+      ].join('\n')
+    })
     return [head, ...items].join('\n')
   })
-  // 도구 추천 → recos.json(pending) + 브리핑 버튼 라인
-  const recosPath = path.join(NIGHT_DIR, 'recos.json')
-  const recosAll = readJson(recosPath, {})
   const recoLines = []
   for (const r of results) {
     for (const rec of (r.recos || [])) {
-      const id = `${DATE}-${r.name}-${rec.type}-${rec.name}`.replace(/[^\w가-힣.-]/g, '_')
-      if (recosAll[id]) continue
-      recosAll[id] = { id, date: DATE, project: r.name, projPath: r.projPath, ...rec, status: 'pending' }
-      recoLines.push(
-        `- 🧩 **[${rec.type.toUpperCase()}] ${rec.name}** → ${r.name} — ${rec.reason} ` +
-        `<!--RECO:${id}--> [✅ 설치](jarvis-reco://approve/${encodeURIComponent(id)}) · [❌ 거부](jarvis-reco://reject/${encodeURIComponent(id)})`
-      )
+      const id = recoId(date, r, rec)
+      const ex = recosAll[id]
+      const tail = ex && ex.status && ex.status !== 'pending'
+        ? `<!--RECO:${id}--> **${recoStatusText(ex.status)}**`
+        : `<!--RECO:${id}--> [✅ 설치](jarvis-reco://approve/${encodeURIComponent(id)}) · [❌ 거부](jarvis-reco://reject/${encodeURIComponent(id)})`
+      recoLines.push(`- 🧩 **[${String(rec.type).toUpperCase()}] ${rec.name}** → ${r.name} — ${rec.reason} ${tail}`)
     }
   }
-  fs.writeFileSync(recosPath, JSON.stringify(recosAll, null, 2))
-
   const ideaCnt = results.reduce((a, r) => a + (r.ideas ? r.ideas.length : 0), 0)
-  const section = [
-    `## 🌙 ${DATE} 야간 브리핑 — 개선 아이디어`,
+  const cnt = (st) => results.filter((r) => r.status === st).length
+  const noReco = ideaCnt === 0 && recoLines.length === 0
+  const costSum = results.reduce((a2, r) => a2 + (r.cost || 0), 0)
+  const costText = costSum > 0 ? ` · 💰 오늘 야간 실행 비용 $${costSum.toFixed(2)}` : ''
+  return [
+    `## 🌙 ${date} 야간 브리핑 — 개선 아이디어`,
     '',
-    `💡 아이디어 ${ideaCnt}건 · 없음 ${results.filter((r) => r.status === 'none').length} · 스킵 ${results.filter((r) => r.status === 'skip').length} · 실패 ${results.filter((r) => r.status === 'fail').length} — _코드는 수정하지 않았습니다. 🚀 착수를 누르면 등재 후 개선 작업이 바로 시작됩니다(🔴 게이트 항목은 등재만)._`,
+    `💡 아이디어 ${ideaCnt}건 · 없음 ${cnt('none')} · 스킵 ${cnt('skip')} · 실패 ${cnt('fail')}${noReco ? ' · **추천사항 없음**' : ''}${costText} — _코드는 수정하지 않았습니다. 🚀 착수를 누르면 등재 후 개선 작업이 바로 시작됩니다(🔴 게이트 항목은 등재만)._`,
     '',
     ...lines,
     ...(recoLines.length ? ['', '### 🧩 도구 추천 (검토 후 설치/거부)', '', ...recoLines] : []),
     '',
   ].join('\n')
+}
 
+/** 날짜 섹션(최신이 위)의 올바른 위치에 삽입 — 상단 고정 섹션(✅/➕/🔧/착수 현황)은 건너뛴다 */
+function insertDatedSection(doc, section, date) {
+  section = section.replace(/\s*$/, '\n\n')
+  // 같은 날짜의 '추천사항 없음(실행 기록 없음)' 자리표시자가 있으면 제거 후 교체
+  doc = doc.replace(new RegExp(`\\n## 🌙 ${date} 야간 브리핑\\n\\n- 💤 \\*\\*추천사항 없음\\*\\*[^\\n]*\\n+`), '\n')
+  const re = /\n## (?:🌙|🔭) (\d{4}-\d{2}-\d{2})/g
+  let m
+  while ((m = re.exec(doc))) {
+    if (m[1] <= date) return doc.slice(0, m.index + 1) + section + doc.slice(m.index + 1)
+  }
+  return doc.replace(/\s*$/, '\n\n') + section
+}
+
+function writeBriefing(results, date = DATE) {
+  // 도구 추천 → recos.json 에 신규만 pending 등록
+  const recosPath = path.join(NIGHT_DIR, 'recos.json')
+  const recosAll = readJson(recosPath, {})
+  for (const r of results) {
+    for (const rec of (r.recos || [])) {
+      const id = recoId(date, r, rec)
+      if (!recosAll[id]) recosAll[id] = { id, date, project: r.name, projPath: r.projPath, ...rec, status: 'pending' }
+    }
+  }
+  fs.writeFileSync(recosPath, JSON.stringify(recosAll, null, 2))
+
+  const section = renderBriefingSection(results, date, { recosAll, benchAll: readJson(IDEAS_PATH, {}) })
   let doc = ''
   if (fs.existsSync(BRIEF_DOC)) doc = fs.readFileSync(BRIEF_DOC, 'utf8')
   else doc = `# 야간 브리핑\n\n> 매일 밤 프로젝트를 읽고 🧭 목적에 기여하는 개선 아이디어를 제안합니다 — 코드는 수정하지 않으며, 아이디어는 매일 달라집니다\n\n`
-  // 상단 고정 섹션(✅ 완성된 기능 · ➕ 추가할 기능 · 🔧 개선할 기능)은 건너뛰고, 첫 날짜 섹션(## 🌙 / ## 🔭) 앞에 최신 섹션 prepend
-  const dated = /\n## (?:🌙|🔭) /.exec(doc)
-  const idx = dated ? dated.index : -1
-  doc = idx === -1 ? doc.replace(/\s*$/, '\n\n') + section : doc.slice(0, idx + 1) + section + doc.slice(idx + 1)
-  fs.writeFileSync(BRIEF_DOC, doc)
+  fs.writeFileSync(BRIEF_DOC, insertDatedSection(doc, section, date))
+  try { require('./bench_status.js').refresh(BRIEF_DOC) } catch (e) { log(`착수 현황 갱신 실패: ${e.message}`) }
 
   // 사이드바 상단 고정 (jarvis.md 다음)
   const orderPath = path.join(JARVIS_DOCS, '.docorder.json')
@@ -242,7 +303,7 @@ function writeBriefing(results) {
     fs.writeFileSync(orderPath, JSON.stringify(order, null, 2))
   }
   // 아침 미확인 플래그
-  fs.writeFileSync(path.join(NIGHT_DIR, 'unread'), DATE)
+  fs.writeFileSync(path.join(NIGHT_DIR, 'unread'), date)
 }
 
 async function main() {
@@ -307,4 +368,5 @@ async function main() {
   }
 }
 
-main()
+if (require.main === module) main()
+module.exports = { renderBriefingSection, insertDatedSection, writeBriefing, recentPrior, PRIOR_LIMIT, NIGHT_DIR, BRIEF_DOC }

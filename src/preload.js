@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('jarvis', {
     remove: (id) => ipcRenderer.invoke('docs:delete', id),
     path: (id) => ipcRenderer.invoke('docs:path', id),
     read: (id) => ipcRenderer.invoke('docs:read', id),
-    write: (id, content) => ipcRenderer.invoke('docs:write', { id, content }),
+    write: (id, content, base) => ipcRenderer.invoke('docs:write', { id, content, base }),
     convertToMd: (id, content) => ipcRenderer.invoke('docs:convertToMd', { id, content }),
     getOrder: () => ipcRenderer.invoke('docs:getOrder'),
     projectsMap: () => ipcRenderer.invoke('docs:projectsMap'),
@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   },
   bench: {
     resolve: (id, action, comment) => ipcRenderer.invoke('bench:resolve', { id, action, comment }),
+    acceptedCounts: () => ipcRenderer.invoke('bench:acceptedCounts'),
   },
   app: {
     toggleFullscreen: () => ipcRenderer.invoke('app:toggleFullscreen'),
