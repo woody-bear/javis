@@ -837,6 +837,7 @@ $('rootRow').addEventListener('click', openRootManager)
 // ── ESC — 녹음 취소 또는 실행 중 작업 중단 ────────────────────────
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return
+  if (findOpen) { closeFind(); return }
   if (!$('modal').hidden) { $('modal').hidden = true; return }
   if (!$('mapView').hidden) { closeMap(); return }
   if (document.body.classList.contains('doc-full')) { document.body.classList.remove('doc-full'); return }
@@ -1649,3 +1650,38 @@ async function initDocs() {
 }
 initDocs()
 loadConfig()
+
+
+// ── 🔍 문서 내 검색 (Cmd+F) ──────────────────────────────────────
+let findOpen = false
+function openFind() {
+  findOpen = true
+  $('findBar').hidden = false
+  $('findInput').focus()
+  $('findInput').select()
+  if ($('findInput').value) window.jarvis.find.start($('findInput').value, true, false)
+}
+function closeFind() {
+  findOpen = false
+  $('findBar').hidden = true
+  $('findCount').textContent = '0/0'
+  window.jarvis.find.stop()
+}
+$('findInput').addEventListener('input', () => {
+  const t = $('findInput').value
+  if (!t) { $('findCount').textContent = '0/0'; window.jarvis.find.stop(); return }
+  window.jarvis.find.start(t, true, false)
+})
+$('findInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); if ($('findInput').value) window.jarvis.find.start($('findInput').value, !e.shiftKey, true) }
+  else if (e.key === 'Escape') { e.stopPropagation(); closeFind() }
+})
+$('findNext').addEventListener('click', () => $('findInput').value && window.jarvis.find.start($('findInput').value, true, true))
+$('findPrev').addEventListener('click', () => $('findInput').value && window.jarvis.find.start($('findInput').value, false, true))
+$('findClose').addEventListener('click', closeFind)
+window.jarvis.events.onFindResult(({ active, matches }) => {
+  $('findCount').textContent = `${matches ? active : 0}/${matches || 0}`
+})
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind() }
+})

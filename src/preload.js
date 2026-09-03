@@ -29,7 +29,12 @@ contextBridge.exposeInMainWorld('jarvis', {
   app: {
     toggleFullscreen: () => ipcRenderer.invoke('app:toggleFullscreen'),
   },
+  find: {
+    start: (text, forward, findNext) => ipcRenderer.invoke('find:start', { text, forward, findNext }),
+    stop: () => ipcRenderer.invoke('find:stop'),
+  },
   events: {
+    onFindResult: (cb) => ipcRenderer.on('find:result', (_e, r) => cb(r)),
     onAutoCreated: (cb) => ipcRenderer.on('docs:autocreated', (_e, list) => cb(list)),
     onNotice: (cb) => ipcRenderer.on('app:notice', (_e, msg) => cb(msg)),
     onNightBriefing: (cb) => ipcRenderer.on('night:briefing', (_e, info) => cb(info)),

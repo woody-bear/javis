@@ -373,3 +373,26 @@ a.link-busy { pointer-events: none; animation: linkPulse 0.8s ease-in-out infini
 .root-state { font-size: 11px; color: var(--fg-2); }
 .root-hint { font-size: 11.5px !important; color: var(--fg-2) !important; }
 @media (prefers-reduced-motion: reduce) { .rec-dot.live, .spinner { animation: none; } }
+
+
+/* ── 🔍 문서 내 검색 (Cmd+F) ── */
+#findBar {
+  position: fixed; top: 52px; right: 20px; z-index: 15;
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 6px 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  animation: fadeIn 0.12s ease-out;
+}
+.find-ico { font-size: 12px; }
+#findInput {
+  width: 190px; background: var(--bg-2); color: var(--fg-0);
+  border: 1px solid var(--border); border-radius: 7px; padding: 4px 9px;
+  font-size: 12.5px; font-family: inherit; outline: none;
+}
+#findInput:focus { border-color: var(--accent); }
+#findCount { font-size: 11px; color: var(--fg-2); min-width: 40px; text-align: center; }
+#findBar button {
+  background: none; border: none; color: var(--fg-1); cursor: pointer;
+  font-size: 11px; padding: 2px 5px; border-radius: 5px;
+}
+#findBar button:hover { color: var(--accent); background: var(--bg-2); }

@@ -50,6 +50,14 @@
         <button id="btnFull" title="문서 전체 화면 (다시 누르거나 ESC로 복귀)">⛶</button>
       </div>
       <div id="gestureToast" hidden></div>
+      <div id="findBar" hidden>
+        <span class="find-ico">🔍</span>
+        <input id="findInput" placeholder="문서에서 검색" spellcheck="false">
+        <span id="findCount">0/0</span>
+        <button id="findPrev" title="이전 (Shift+Enter)">▲</button>
+        <button id="findNext" title="다음 (Enter)">▼</button>
+        <button id="findClose" title="닫기 (ESC)">✕</button>
+      </div>
       <div id="docFrameWrap">
         <div id="emptyState">
           <p class="empty-title">문서를 선택하거나 ＋ 로 새 주제를 시작하세요</p>

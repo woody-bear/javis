@@ -746,6 +746,17 @@ function registerIpc() {
     }
   })
 
+  // 🔍 문서 내 검색 (Cmd+F) — Chromium findInPage: md 뷰·레거시 iframe 모두 하이라이트
+  ipcMain.handle('find:start', (_e, { text, forward, findNext }) => {
+    if (!win || win.isDestroyed() || !text) return false
+    win.webContents.findInPage(String(text), { forward: forward !== false, findNext: !!findNext })
+    return true
+  })
+  ipcMain.handle('find:stop', () => {
+    if (win && !win.isDestroyed()) win.webContents.stopFindInPage('clearSelection')
+    return true
+  })
+
   ipcMain.handle('night:ackBriefing', () => {
     try { fs.unlinkSync(path.join(HUB_DIR, 'night', 'unread')) } catch { /* noop */ }
     return true
@@ -901,6 +912,9 @@ function createWindow() {
     },
   })
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  win.webContents.on('found-in-page', (_e, r) => {
+    if (win && !win.isDestroyed()) win.webContents.send('find:result', { active: r.activeMatchOrdinal, matches: r.matches })
+  })
 }
 
 app.whenReady().then(() => {
